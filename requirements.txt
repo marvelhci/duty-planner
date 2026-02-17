@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+google-auth
+gspread
+ortools
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
