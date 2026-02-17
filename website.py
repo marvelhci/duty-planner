@@ -22,30 +22,23 @@ SCOPES = [
 # --------------------------------------------------
 
 def get_gspread_auth():
-    """OAuth authentication for personal Gmail."""
-    if "gcp_service_account" in st.secrets:
-        # Use Service Account from Secrets
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        return gspread.service_account_from_dict(creds_dict), None
-    
-    creds = None
-
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+    """OAuth authentication using only Streamlit secrets."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            # Convert the secrets object to a standard dictionary
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            
+            # Authorize using the service account credentials
+            client = gspread.service_account_from_dict(creds_dict)
+            
+            # Return the client and None for creds (since service accounts handle their own state)
+            return client, None
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                "oauth_credentials.json", SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
-
-    return gspread.authorize(creds), creds
+            st.error("❌ 'gcp_service_account' not found in secrets.toml")
+            st.stop()
+    except Exception as e:
+        st.error(f"❌ Authentication Error: {e}")
+        st.stop()
 
 # --------------------------------------------------
 # CONVERT FILES FROM .XLSX TO SHEETS
