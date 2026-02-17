@@ -25,13 +25,8 @@ def get_gspread_auth():
     """OAuth authentication using only Streamlit secrets."""
     try:
         if "gcp_service_account" in st.secrets:
-            # Convert the secrets object to a standard dictionary
             creds_dict = dict(st.secrets["gcp_service_account"])
-            
-            # Authorize using the service account credentials
             client = gspread.service_account_from_dict(creds_dict)
-            
-            # Return the client and None for creds (since service accounts handle their own state)
             return client, None
         else:
             st.error("❌ 'gcp_service_account' not found in secrets.toml")
