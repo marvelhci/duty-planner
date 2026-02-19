@@ -5,6 +5,7 @@ import os
 import planner_engine
 import user_engine
 import traceback
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -22,12 +23,16 @@ SCOPES = [
 # --------------------------------------------------
 
 def get_gspread_auth():
-    """OAuth authentication using only Streamlit secrets."""
+    """Service account authentication for Sheets (gspread client only)."""
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
-            client = gspread.service_account_from_dict(creds_dict)
-            return client, None
+            creds = service_account.Credentials.from_service_account_info(
+                creds_dict,
+                scopes=SCOPES
+            )
+            client = gspread.authorize(creds)
+            return client
         else:
             st.error("❌ 'gcp_service_account' not found in secrets.toml")
             st.stop()
@@ -35,46 +40,77 @@ def get_gspread_auth():
         st.error(f"❌ Authentication Error: {e}")
         st.stop()
 
+def get_personal_drive_service():
+    """Builds a Drive service authenticated as your personal Google account.
+    Requires [personal_account] section in secrets.toml with:
+        token, refresh_token, client_id, client_secret, token_uri
+    """
+    info = st.secrets["personal_account"]
+    creds = Credentials(
+        token=info["token"],
+        refresh_token=info["refresh_token"],
+        client_id=info["client_id"],
+        client_secret=info["client_secret"],
+        token_uri=info["token_uri"]
+    )
+    if creds.expired:
+        creds.refresh(Request())
+    return build('drive', 'v3', credentials=creds)
+
 # --------------------------------------------------
 # CONVERT FILES FROM .XLSX TO SHEETS
 # --------------------------------------------------
 
-def convert_if_excel(client, creds, spreadsheet_name):
-    drive_service = build('drive', 'v3', credentials=creds)
+def convert_if_excel(client, spreadsheet_name):
+    """Uses personal Drive account to find/convert files so storage hits personal quota."""
+    personal_drive = get_personal_drive_service()
+    folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
 
-    gs_query = f"name = '{spreadsheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
-    gs_results = drive_service.files().list(q=gs_query, fields="files(id)").execute()
+    # check if Google Sheet already exists in personal folder
+    gs_query = (
+        f"name = '{spreadsheet_name}' "
+        f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+        f"and trashed = false "
+        f"and '{folder_id}' in parents"
+    )
+    gs_results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
     gs_files = gs_results.get('files', [])
 
     if gs_files:
         return client.open_by_key(gs_files[0]['id'])
-    
-    ex_query = f"(name = '{spreadsheet_name}' or name = '{spreadsheet_name}.xlsx') and mimeType != 'application/vnd.google-apps.spreadsheet' and trashed = false"
-    ex_results = drive_service.files().list(q=ex_query, fields="files(id, name)").execute()
+
+    # check if Excel file exists in personal folder
+    ex_query = (
+        f"(name = '{spreadsheet_name}' or name = '{spreadsheet_name}.xlsx') "
+        f"and mimeType != 'application/vnd.google-apps.spreadsheet' "
+        f"and trashed = false "
+        f"and '{folder_id}' in parents"
+    )
+    ex_results = personal_drive.files().list(q=ex_query, fields="files(id, name)").execute()
     ex_files = ex_results.get('files', [])
 
     if not ex_files:
-        raise FileNotFoundError(f"Could not find any active Excel or Google Sheet named '{spreadsheet_name}'")
+        raise FileNotFoundError(f"Could not find any active Excel or Google Sheet named '{spreadsheet_name}' in your Drive folder")
 
     with st.spinner("📦 Excel source detected. Converting to Google Sheets..."):
-        target_excel = ex_files[0]
-        
-        file_metadata = {
-            'name': spreadsheet_name,
-            'mimeType': 'application/vnd.google-apps.spreadsheet'
-        }
-
-        converted_file = drive_service.files().copy(
-            fileId=target_excel['id'],
-            body=file_metadata
+        converted_file = personal_drive.files().copy(
+            fileId=ex_files[0]['id'],
+            body={
+                'name': spreadsheet_name,
+                'mimeType': 'application/vnd.google-apps.spreadsheet',
+                'parents': [folder_id]
+            }
         ).execute()
 
-    return client.open_by_key(converted_file.get('id'))
+    return client.open_by_key(converted_file['id'])
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
+if "hard4_slider" not in st.session_state:
+    st.session_state["hard4_slider"] = 4
+    st.session_state["hard4_input"] = 4
 
 ADMIN_PASSWORD = "password"
 USER_PASSWORD = "weapons"
@@ -100,7 +136,7 @@ if not st.session_state['logged_in']:
             st.session_state['user_role'] = 'User'
             st.rerun()
         else:
-            st.error("Incorrect Password")
+            st.error("❌ Incorrect Password")
 
     st.subheader("Admin")
     st.write("Plan rostering")
@@ -111,7 +147,7 @@ if not st.session_state['logged_in']:
             st.session_state['user_role'] = 'Admin'
             st.rerun()
         else:
-            st.error("Incorrect Password")
+            st.error("❌ Incorrect Password")
     st.stop()
 
 st.sidebar.button("Logout", on_click=logout)
@@ -224,9 +260,9 @@ if role == 'Admin':
     if "hard1_slider" not in st.session_state:
         st.session_state["hard1_slider"] = 2
         st.session_state["hard1_input"] = 2
-    if "hard4_slider" not in st.session_state:
+    if "hard4_slider" not in st.session_state or st.session_state["hard4_slider"] == 0:
         st.session_state["hard4_slider"] = 4
-        st.session_state["hard4_input"] = 4
+        st.session_state["hard4_inp ut"] = 4
     if "hard5_slider" not in st.session_state:
         st.session_state["hard5_slider"] = 3
         st.session_state["hard5_input"] = 3
@@ -275,7 +311,7 @@ if role == 'Admin':
     st.title("🚀 Duty Planner")
 
     try:
-        client, creds = get_gspread_auth()
+        client = get_gspread_auth()
         st.success("✅ Connected to Google Account")
     except Exception as e:
         st.error(f"❌ Connection Error: {e}")
@@ -296,7 +332,7 @@ if role == 'Admin':
     if st.button("🔥 Run Optimiser"):
         try:
 
-            sh = convert_if_excel(client, creds, spreadsheet_name)
+            sh = convert_if_excel(client, spreadsheet_name)
 
             with st.spinner("📥 Fetching Sheet Data..."):
 
@@ -362,17 +398,17 @@ if role == 'Admin':
 
     # planning buttons
 
-    st.markdown("---")
-
     final_name = st.session_state.get('active_sh_name', spreadsheet_name)
 
     if st.button("💾 Save to Google Sheets (Output D)"):
         if 'planned_df' in st.session_state:
-            # 1. Archive the original MMYYC
+            # 1. archive the original MMYYC using personal Drive account
             with st.spinner("🧳 Creating Archive..."):
-                planner_engine.archive_source_sheet(client, final_name, mmyy)
+                personal_drive = get_personal_drive_service()
+                folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+                planner_engine.archive_source_sheet(client, final_name, mmyy, folder_id, personal_drive)
             
-            # 2. Write output
+            # 2. write output
             with st.spinner("✏️ Writing Output..."):
                 out_name = planner_engine.create_backup_and_output(
                     client, final_name, mmyy,
@@ -381,9 +417,9 @@ if role == 'Admin':
                     st.session_state['ranges']
                 )
 
-            # 3. Create Next Month Template
+            # 3. create next month template
             with st.spinner("⏭️ Preparing Next Month..."):
-                _, next_file_name =planner_engine.generate_next_month_template(
+                _, next_file_name = planner_engine.generate_next_month_template(
                     client, final_name, mmyy,
                     st.session_state['planned_df'],
                     st.session_state['ranges']
@@ -397,6 +433,81 @@ if role == 'Admin':
         else:
             st.warning("Run the optimiser first!")
 
+    st.markdown("---")
+
+    # manual adjustments writing
+
+    st.markdown("### 🔄 Manual Duty Adjustments")
+
+    target_sheet_name = f"{mmyy}C"
+
+    try:
+        personal_drive = get_personal_drive_service()
+        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+        gs_query = (
+            f"name = '{spreadsheet_name}' "
+            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+            f"and trashed = false "
+            f"and '{folder_id}' in parents"
+        )
+        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+        files = results.get('files', [])
+        if not files:
+            raise FileNotFoundError(f"Could not find '{spreadsheet_name}' in your Drive folder")
+        sh_admin = client.open_by_key(files[0]['id'])
+        names_for_adj = user_engine.get_namelist(client, spreadsheet_name)
+        adj_ws = sh_admin.worksheet(target_sheet_name)
+        
+        with st.container(border=True):
+            col_p1, col_p2, col_type = st.columns(3)
+            with col_p1:
+                person_minus = st.selectbox("Person giving up duty (MINUS)", options=[""] + names_for_adj)
+            with col_p2:
+                person_plus = st.selectbox("Person taking over duty (ADD)", options=[""] + names_for_adj)
+            with col_type:
+                day_type = st.selectbox("Day Type", options=["Weekday (WD)", "Friday (F)", "Weekend (WE)", "Holiday (H)"])
+
+            if st.button("+ Record Adjustment", use_container_width=True):
+                if not person_minus or not person_plus:
+                    st.error("❌ Please select both individuals.")
+                elif person_minus == person_plus:
+                    st.error("❌ Cannot swap between the same person.")
+                else:
+                    type_map = {"Weekday (WD)": "WD", "Friday (F)": "F", "Weekend (WE)": "WE", "Holiday (H)": "H"}
+                    suffix = type_map[day_type]
+                    
+                    # find next row in column AW (49)
+                    col_aw_values = adj_ws.col_values(49)
+                    next_row = max(37, len(col_aw_values) + 1)
+
+                    updates = [
+                        {'range': f'AW{next_row}:AX{next_row}', 'values': [[person_minus.upper(), f"MINUS 1X {suffix}"]]},
+                        {'range': f'AW{next_row+1}:AX{next_row+1}', 'values': [[person_plus.upper(), f"ADD 1X {suffix}"]]}
+                    ]
+                    
+                    adj_ws.batch_update(updates, value_input_option='USER_ENTERED')
+                    st.success(f"📝 Recorded")
+                    st.rerun()
+
+        # review and clear adjustments
+
+        st.write("**Current adjustments (AW:AX):**")
+        
+        raw_adj = adj_ws.get("AW37:AX100")
+        if raw_adj:
+            adj_df = pd.DataFrame(raw_adj, columns=["Name", "Adjustment"])
+            st.dataframe(adj_df, use_container_width=True, hide_index=True)
+            
+            if st.button("🗑️ Clear Adjustments (Names/Text Only)", type="secondary"):
+                adj_ws.batch_clear(["AW37:AX100"])
+                st.toast("🚮 Adjustment names and text cleared")
+                st.rerun()
+        else:
+            st.caption(f"No adjustments recorded in {target_sheet_name}")
+
+    except Exception as e:
+        st.warning(f"No adjustments found.")
+
 # --------------------------------------------------
 # USER INTERFACE
 # --------------------------------------------------
@@ -404,7 +515,7 @@ if role == 'Admin':
 elif role == 'User':
     st.title("🚀 Duty Planner")
     
-    client, _ = get_gspread_auth()
+    client = get_gspread_auth()
     view_mmyy = st.sidebar.text_input("Month (MMYY)", value="0126")
     spreadsheet_name = f"Plan_Duty_{view_mmyy}"
     
@@ -449,7 +560,7 @@ elif role == 'User':
             status_string = ", ".join(selected_status)
             
         constraints = st.text_input("Constraints (X) (e.g. 1, 2, 3)", value=defaults['constraints'], help="Comma separated numbers")
-        preferences = st.text_input("Duty Days (D) (e.g. 1, 2, 3)", value=defaults['preferences'], help="Comma separated numbers")
+        preferences = st.text_input(f"Duty Days (D) (e.g. 1, 2, 3) | You must have a {st.session_state['hard4_slider']} day gap between duties.", value=defaults['preferences'], help="Comma separated numbers")
 
         if st.form_submit_button("Save Changes"):
             with st.spinner("💾 Writing to Google Sheets..."):
@@ -462,4 +573,4 @@ elif role == 'User':
                     st.success("Preferences updated successfully!")
                     del st.session_state.user_defaults
                 else:
-                    st.error(f"Failed to update: {logs[0]}")
+                    st.error(f"❌ Failed to update: {logs[0]}")

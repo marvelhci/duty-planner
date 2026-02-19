@@ -58,19 +58,18 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
     output_ws.batch_update(updates)
     return output_name
 
-def archive_source_sheet(client, spreadsheet_name, mmyy, *args, **kwargs):
-    """
-    Creates a full duplicate of the entire Google Spreadsheet file in Drive.
-    """
-    # open original to get ID
+def archive_source_sheet(client, spreadsheet_name, mmyy, folder_id, personal_drive, *args, **kwargs):
     sh = client.open(spreadsheet_name)
-    
-    # define name
     archive_filename = f"[ARCHIVE] {spreadsheet_name}"
-    
-    # use client to copy the file
-    client.copy(sh.id, title=archive_filename)
-    
+
+    personal_drive.files().copy(
+        fileId=sh.id,
+        body={
+            'name': archive_filename,
+            'parents': [folder_id]
+        }
+    ).execute()
+
     return archive_filename
 
 def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ranges):

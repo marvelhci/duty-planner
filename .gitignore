@@ -1,1 +1,4 @@
 token.json
+client_secrets.json
+temp.py
+.streamlit/secrets.toml

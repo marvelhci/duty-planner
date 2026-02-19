@@ -109,12 +109,23 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         user_cell = c_ws.find(user_name, in_column=2)
         u_row = user_cell.row
         date_start_col = 6 
+        date_end_col = 36
         c_updates = []
 
         c_updates.append({'range': f'AS{u_row}', 'values': [[status_string]]})
 
         def get_col_let(n):
-            return chr(64 + n) if n <= 26 else f"A{chr(64 + n - 26)}"
+            if n <= 26:
+                return chr(64 + n)
+            else:
+                first = chr(64 + (n - 1) // 26)
+                second = chr(64 + (n - 1) % 26 + 1)
+                return f"{first}{second}"
+            
+        # wipes existing data in the sheet
+        clear_range = f"{get_col_let(date_start_col)}{u_row}:{get_col_let(date_end_col)}{u_row}"
+        blank_row = [["" for _ in range(31)]]
+        c_ws.update(clear_range, blank_row)
 
         if constraints:
             for day in [d.strip() for d in constraints.split(',') if d.strip().isdigit()]:
