@@ -297,12 +297,12 @@ if role == 'Admin':
         scalefactor_manual = st.number_input("Label", 0, 5, key="scalefactor_input", on_change=update_slider, args=("scalefactor",), label_visibility="collapsed")
 
     model_constraints = {
-        "hard1_points": hard1_val,
-        "hard4_points": hard4_val,
-        "hard5_points": hard5_val,
-        "hard1s_points": hard1s_val,
-        "hard2s_points": hard2s_val,
-        "scalefactor_points": scalefactor_val
+        "hard1": hard1_val,
+        "hard4": hard4_val,
+        "hard5": hard5_val,
+        "hard1s": hard1s_val,
+        "hard2s": hard2s_val,
+        "scalefactor": scalefactor_val
     }
 
 # main interface
