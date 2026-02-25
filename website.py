@@ -108,10 +108,6 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
-if "hard4_initialised" not in st.session_state:
-    st.session_state["hard4_slider"] = 4
-    st.session_state["hard4_input"] = 4
-    st.session_state["hard4_initialised"] = True
 
 ADMIN_PASSWORD = "password"
 USER_PASSWORD = "weapons"
@@ -157,6 +153,11 @@ role = st.session_state['user_role']
 # --------------------------------------------------
 # ADMIN INTERFACE
 # --------------------------------------------------
+
+if "hard4_initialised" not in st.session_state:
+    st.session_state["hard4_slider"] = 4
+    st.session_state["hard4_input"] = 4
+    st.session_state["hard4_initialised"] = True
 
 if role == 'Admin':
 
