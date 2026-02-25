@@ -160,7 +160,7 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
         })
         
         # reset grid data
-        grid_row = ["" if d <= num_days_next else "X" for d in range(1, 32)]
+        grid_row = ["" for d in range(1, 32)]
         start_a1 = gspread.utils.rowcol_to_a1(gs_row, date_start_col + 1)
         end_a1 = gspread.utils.rowcol_to_a1(gs_row, date_start_col + 31)
         updates.append({'range': f"{start_a1}:{end_a1}", 'values': [grid_row]})
