@@ -261,9 +261,6 @@ if role == 'Admin':
     if "hard1_slider" not in st.session_state:
         st.session_state["hard1_slider"] = 2
         st.session_state["hard1_input"] = 2
-    if "hard4_slider" not in st.session_state or st.session_state["hard4_slider"] == 0:
-        st.session_state["hard4_slider"] = 4
-        st.session_state["hard4_inp ut"] = 4
     if "hard5_slider" not in st.session_state:
         st.session_state["hard5_slider"] = 3
         st.session_state["hard5_input"] = 3
