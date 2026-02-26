@@ -306,7 +306,7 @@ if role == 'Admin':
 
     st.title("🚀 Duty Planner")
 
-    mmyy = st.sidebar.text_input("Month/Year (MMYY)", value="0126")
+    mmyy = st.text_input("Month/Year (MMYY)", value="0126")
     spreadsheet_name = f"Plan_Duty_{mmyy}"
 
     try:
