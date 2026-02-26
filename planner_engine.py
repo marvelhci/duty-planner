@@ -644,7 +644,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     # --------------------------------------------------
 
     # define point scales and constants
-    SBF_BONUS = int(2 * SCALE)
+    SBF_BONUS = int(2 * SCALE) # make it a slider HERE HERE HERE
 
     final_scores = {}
     duty_counts = {}

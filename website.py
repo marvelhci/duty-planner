@@ -559,7 +559,7 @@ elif role == 'User':
             status_string = ", ".join(selected_status)
             
         constraints = st.text_input("Constraints (X) (e.g. 1, 2, 3)", value=defaults['constraints'], help="Comma separated numbers")
-        preferences = st.text_input(f"Duty Days (D) (e.g. 1, 2, 3) | You must have a {st.session_state['hard4_slider']} day gap between duties.", value=defaults['preferences'], help="Comma separated numbers")
+        preferences = st.text_input(f"Duty Days (D) (e.g. 1, 2, 3) | You must have a {st.session_stat.get('hard4_slider, 4')} day gap between duties.", value=defaults['preferences'], help="Comma separated numbers")
 
         if st.form_submit_button("Save Changes"):
             with st.spinner("💾 Writing to Google Sheets..."):
