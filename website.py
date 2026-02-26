@@ -171,9 +171,6 @@ if role == 'Admin':
 
     st.sidebar.title("📅 Planning Settings")
 
-    mmyy = st.sidebar.text_input("Month/Year (MMYY)", value="0126")
-    spreadsheet_name = f"Plan_Duty_{mmyy}"
-
     st.sidebar.markdown("---")
     st.sidebar.subheader("⚖️ Soft Constraint Weights")
 
@@ -308,6 +305,9 @@ if role == 'Admin':
 # main interface
 
     st.title("🚀 Duty Planner")
+
+    mmyy = st.sidebar.text_input("Month/Year (MMYY)", value="0126")
+    spreadsheet_name = f"Plan_Duty_{mmyy}"
 
     try:
         client = get_gspread_auth()
