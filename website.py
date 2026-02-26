@@ -171,7 +171,6 @@ if role == 'Admin':
 
     st.sidebar.title("📅 Planning Settings")
 
-    st.sidebar.markdown("---")
     st.sidebar.subheader("⚖️ Soft Constraint Weights")
 
     col_slider, col_input = st.sidebar.columns([3, 1])
@@ -515,7 +514,7 @@ elif role == 'User':
     st.title("🚀 Duty Planner")
     
     client = get_gspread_auth()
-    view_mmyy = st.sidebar.text_input("Month (MMYY)", value="0126")
+    view_mmyy = st.text_input("Month (MMYY)", value="0126")
     spreadsheet_name = f"Plan_Duty_{view_mmyy}"
     
     names_list = user_engine.get_namelist(client, spreadsheet_name)
