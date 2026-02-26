@@ -327,6 +327,16 @@ if role == 'Admin':
 
     st.info(f"Targeting Spreadsheet: **{spreadsheet_name}** | Sheet: **{mmyy}C** | New Month File: **{next_file_display}**")
 
+    if st.button("🔄 Convert / Load Spreadsheet"):
+        try:
+            sh = convert_if_excel(client, spreadsheet_name)
+            st.session_state['sh'] = sh
+            st.success(f"✅ Loaded: {sh.title}")
+        except Exception:
+            st.error("🚨 Failed to load spreadsheet")
+            st.code(traceback.format_exc())
+
+
     if st.button("🔥 Run Optimiser"):
         try:
 
