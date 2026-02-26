@@ -336,7 +336,6 @@ if role == 'Admin':
             st.error("🚨 Failed to load spreadsheet")
             st.code(traceback.format_exc())
 
-
     if st.button("🔥 Run Optimiser"):
         try:
 
@@ -526,6 +525,24 @@ elif role == 'User':
     client = get_gspread_auth()
     view_mmyy = st.text_input("Month (MMYY)", value="0126")
     spreadsheet_name = f"Plan_Duty_{view_mmyy}"
+
+    try:
+        personal_drive = get_personal_drive_service()
+        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+        gs_query = (
+            f"name = '{spreadsheet_name}' "
+            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+            f"and trashed = false "
+            f"and '{folder_id}' in parents"
+        )
+        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+        files = results.get('files', [])
+        if files:
+            st.success(f"✅ Found: {spreadsheet_name}")
+        else:
+            st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+    except Exception as e:
+        st.error(f"❌ Drive check failed: {e}")
     
     names_list = user_engine.get_namelist(client, spreadsheet_name)
     selected_name = st.selectbox("Step 1: Select Your Name to Load Data", options=[""] + names_list)
