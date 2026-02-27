@@ -1,4 +1,5 @@
 import gspread
+from datetime import date
 
 def get_namelist(client, spreadsheet_name):
     """Fetches the list of names from the 'Namelist' tab."""
@@ -150,7 +151,6 @@ def parse_string_to_days(day_string, month_year_str):
         """Converts '1, 2' string into a list of date objects for the calendar memory."""
         if not day_string: return []
         days = []
-        # month_year_str is 'MMYY' -> e.g., '0126'
         mm = int(month_year_str[:2])
         yy = 2000 + int(month_year_str[2:])
         

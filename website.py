@@ -589,7 +589,7 @@ if role == 'User':
                     st.session_state.hist_constraints.add(c_input[0])
             st.rerun()
 
-        if c_col2.button("🗑️ Undo Constraints"):
+        if c_col2.button("🗑️ Reset to Saved (X)"):
             # resets it back to the original spreadsheet data
             st.session_state.hist_constraints = set(user_engine.parse_string_to_days(defaults['constraints'], view_mmyy))
             st.rerun()
@@ -612,7 +612,7 @@ if role == 'User':
                     st.session_state.hist_preferences.add(p_input[0])
             st.rerun()
 
-        if p_col2.button("🗑️ Clear/Undo Preferences"):
+        if p_col2.button("🗑️ Reset to Saved (D)"):
             st.session_state.hist_preferences = set(user_engine.parse_string_to_days(defaults['preferences'], view_mmyy))
             st.rerun()
             
@@ -636,11 +636,20 @@ if role == 'User':
             selected_partner = st.selectbox("Your Preferred Partner", options=p_options, index=p_idx)
 
         with col3:
-            s_options = ["","SBF", "SAIL", "NDP", "EXCUSED", "MEDICAL", "ON COURSE", "NEW"]
+            s_options = ["", "EXCUSED", "SBF", "NEW"]
             # check if defaults has status_string, otherwise default to empty
-            current_status = defaults.get('status_string', "").split(", ") if defaults.get('status_string') else []
-            selected_status = st.multiselect("Your Status", options=s_options, default=[s for s in current_status if s in s_options])
+            selected_status = st.multiselect("Your Status", options=s_options)
             status_string_out = ", ".join(selected_status)
+            excused_reason = ""
+            if "EXCUSED" in selected_status:
+                excused_reason = st.text_input("Reason:", placeholder="e.g., Medical", key="excused_input")
+            final_status_parts = []
+            for s in selected_status:
+                if s == "EXCUSED":
+                    final_status_parts.append(f"EXCUSED: {excused_reason}" if excused_reason else "EXCUSED")
+                else:
+                    final_status_parts.append(s)
+            status_string_out = ", ".join(final_status_parts)
             
         final_constraints = st.text_input("Constraints (X)", value=constraints_string)
         final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
