@@ -145,3 +145,28 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
 
     except Exception as e:
         return False, [f"❌ Error: {str(e)}"]
+    
+def parse_string_to_days(day_string, month_year_str):
+        """Converts '1, 2' string into a list of date objects for the calendar memory."""
+        if not day_string: return []
+        days = []
+        # month_year_str is 'MMYY' -> e.g., '0126'
+        mm = int(month_year_str[:2])
+        yy = 2000 + int(month_year_str[2:])
+        
+        parts = [p.strip() for p in str(day_string).split(",")]
+        for p in parts:
+            if p.isdigit():
+                days.append(date(yy, mm, int(p)))
+        return days
+
+def format_date_list(history_collection):
+        """Safely converts a collection of dates OR ints into a sorted string."""
+        day_nums = set()
+        for item in history_collection:
+            if hasattr(item, 'day'):
+                day_nums.add(item.day)
+            elif isinstance(item, int):
+                day_nums.add(item)
+        
+        return ", ".join(map(str, sorted(list(day_nums))))

@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import os
 import planner_engine
 import user_engine
 import traceback
+from datetime import date, timedelta
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 
@@ -519,9 +518,15 @@ if role == 'Admin':
 # USER INTERFACE
 # --------------------------------------------------
 
-elif role == 'User':
+if role == 'User':
     st.title("🚀 Duty Planner")
     
+    # initialize session state for date history if not present
+    if 'hist_constraints' not in st.session_state:
+        st.session_state.hist_constraints = []
+    if 'hist_preferences' not in st.session_state:
+        st.session_state.hist_preferences = []
+
     client = get_gspread_auth()
     view_mmyy = st.text_input("Month (MMYY)", value="0126")
     spreadsheet_name = f"Plan_Duty_{view_mmyy}"
@@ -549,7 +554,6 @@ elif role == 'User':
 
     defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
 
-    # fetch data from previous month
     if selected_name:
         if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
             with st.spinner(f"📦 Retrieving current records for {selected_name}..."):
@@ -557,15 +561,68 @@ elif role == 'User':
                 if existing:
                     st.session_state.user_defaults = existing
                     st.session_state.last_fetched_user = selected_name
+                    st.session_state.hist_constraints = set(user_engine.parse_string_to_days(existing.get('constraints', ""), view_mmyy))
+                    st.session_state.hist_preferences = set(user_engine.parse_string_to_days(existing.get('preferences', ""), view_mmyy))
                     st.toast(f"Loaded data for {selected_name}")
         
-
         if "user_defaults" in st.session_state:
             defaults = st.session_state.user_defaults
 
-    # input form
+    # date picker with calendar
+
+    st.subheader("Step 2: Pick Your Dates")
+    tab1, tab2 = st.tabs(["❌ Constraints (X)", "✅ Duty Days (D)"])
+
+    with tab1:
+    
+        c_input = st.date_input("Select Date or Range", value=[], key="c_picker")
+        c_col1, c_col2 = st.columns(2)
+        
+        if c_col1.button("➕ Add Constraint"):
+            if isinstance(c_input, (list, tuple)):
+                if len(c_input) == 2: # date range
+                    curr = c_input[0]
+                    while curr <= c_input[1]:
+                        st.session_state.hist_constraints.add(curr)
+                        curr += timedelta(days=1)
+                elif len(c_input) == 1: # single date
+                    st.session_state.hist_constraints.add(c_input[0])
+            st.rerun()
+
+        if c_col2.button("🗑️ Undo Constraints"):
+            # resets it back to the original spreadsheet data
+            st.session_state.hist_constraints = set(user_engine.parse_string_to_days(defaults['constraints'], view_mmyy))
+            st.rerun()
+        
+        constraints_string = user_engine.format_date_list(st.session_state.hist_constraints)
+        st.caption(f"Current: {constraints_string if constraints_string else 'None'}")
+
+    with tab2:
+        p_input = st.date_input("Select Date or Range", value=[], key="p_picker")
+        p_col1, p_col2 = st.columns(2)
+        
+        if p_col1.button("➕ Add Preference"):
+            if isinstance(p_input, (list, tuple)):
+                if len(p_input) == 2:
+                    curr = p_input[0]
+                    while curr <= p_input[1]:
+                        st.session_state.hist_preferences.add(curr)
+                        curr += timedelta(days=1)
+                elif len(p_input) == 1:
+                    st.session_state.hist_preferences.add(p_input[0])
+            st.rerun()
+
+        if p_col2.button("🗑️ Clear/Undo Preferences"):
+            st.session_state.hist_preferences = set(user_engine.parse_string_to_days(defaults['preferences'], view_mmyy))
+            st.rerun()
+            
+        preferences_string = user_engine.format_date_list(st.session_state.hist_preferences)
+        st.caption(f"Current: {preferences_string if preferences_string else 'None'}")
+
+    # form section
+
     with st.form("user_submission_form"):
-        st.subheader("Step 2: Update Your Constraints")
+        st.subheader("Step 3: Finalize Details")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -580,22 +637,28 @@ elif role == 'User':
 
         with col3:
             s_options = ["","SBF", "SAIL", "NDP", "EXCUSED", "MEDICAL", "ON COURSE", "NEW"]
-            s_idx = 0
-            selected_status = st.multiselect("Your Status (If Applicable)", options=s_options, default=s_options[s_idx])
-            status_string = ", ".join(selected_status)
+            # check if defaults has status_string, otherwise default to empty
+            current_status = defaults.get('status_string', "").split(", ") if defaults.get('status_string') else []
+            selected_status = st.multiselect("Your Status", options=s_options, default=[s for s in current_status if s in s_options])
+            status_string_out = ", ".join(selected_status)
             
-        constraints = st.text_input("Constraints (X) (e.g. 1, 2, 3)", value=defaults['constraints'], help="Comma separated numbers")
-        preferences = st.text_input(f"Duty Days (D) (e.g. 1, 2, 3) | You must have a {st.session_state.get('hard4_slider, 4')} day gap between duties.", value=defaults['preferences'], help="Comma separated numbers")
+        final_constraints = st.text_input("Constraints (X)", value=constraints_string)
+        final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
 
         if st.form_submit_button("Save Changes"):
             with st.spinner("💾 Writing to Google Sheets..."):
                 success, logs = user_engine.update_user_data(
                     client, spreadsheet_name, view_mmyy, 
                     selected_name, selected_partner, 
-                    driving_status, constraints, preferences, status_string
+                    driving_status, final_constraints, final_preferences, status_string_out
                 )
                 if success:
                     st.success("Preferences updated successfully!")
-                    del st.session_state.user_defaults
+                    # clear session state on success
+                    st.session_state.hist_constraints = []
+                    st.session_state.hist_preferences = []
+                    if "user_defaults" in st.session_state: 
+                        del st.session_state.user_defaults
+                    st.rerun()
                 else:
                     st.error(f"❌ Failed to update: {logs[0]}")
