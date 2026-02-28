@@ -338,117 +338,135 @@ if role == 'Admin':
     next_file_display = f"{m_new:02d}{y_new:02d}C"
 
     st.info(f"Targeting Spreadsheet: **{spreadsheet_name}** | Sheet: **{mmyy}C** | New Month File: **{next_file_display}**")
+    
+    col1, col2 = st.columns([2,3])
 
-    if st.button("🔄 Convert / Load Spreadsheet"):
-        try:
-            sh = convert_if_excel(client, spreadsheet_name)
-            st.session_state['sh'] = sh
-            st.success(f"✅ Loaded: {sh.title}")
-        except Exception:
-            st.error("🚨 Failed to load spreadsheet")
-            st.code(traceback.format_exc())
+    with col1:
+        st.write("If your file is an excel, convert it to a Google Sheet:")
 
-    if st.button("🔥 Run Optimiser"):
-        try:
+    with col2:
+        if st.button("🔄 Convert / Load Spreadsheet"):
+            try:
+                sh = convert_if_excel(client, spreadsheet_name)
+                st.session_state['sh'] = sh
+                st.success(f"✅ Loaded: {sh.title}")
+            except Exception:
+                st.error("🚨 Failed to load spreadsheet")
+                st.code(traceback.format_exc())
+    
+    col1, col2 = st.columns([2,3])
 
-            sh = convert_if_excel(client, spreadsheet_name)
+    with col1:
+        st.write("Step 1:")
 
-            with st.spinner("📥 Fetching Sheet Data..."):
+    with col2:
+        if st.button("🔥 Run Optimiser"):
+            try:
 
-                def get_df(sheet_name, header_row, use_cols = None):
+                sh = convert_if_excel(client, spreadsheet_name)
+
+                with st.spinner("📥 Fetching Sheet Data..."):
+
+                    def get_df(sheet_name, header_row, use_cols = None):
+                        try:
+                            data = sh.worksheet(sheet_name).get_all_values()
+                            df = pd.DataFrame(data)
+                            df.columns = df.iloc[0]
+                            df = df[1:].reset_index(drop=True)
+                            if use_cols:
+                                df = df.iloc[:, :use_cols]
+                            return df.head(250)
+                        except Exception as e:
+                            raise ValueError(f"Error loading sheet '{sheet_name}': {e}")
+
+                    constraints_raw = get_df(f"{mmyy}C", header_row=1)
+                    constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
+                    holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
+                    partners_raw = get_df("Partners", header_row=0, use_cols=5)
+                    namelist_raw = get_df("Namelist", header_row=0, use_cols=3)
+
                     try:
-                        data = sh.worksheet(sheet_name).get_all_values()
-                        df = pd.DataFrame(data)
-                        df.columns = df.iloc[0]
-                        df = df[1:].reset_index(drop=True)
-                        if use_cols:
-                            df = df.iloc[:, :use_cols]
-                        return df.head(250)
-                    except Exception as e:
-                        raise ValueError(f"Error loading sheet '{sheet_name}': {e}")
+                        last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
+                    except:
+                        st.warning("Previous month data not found.")
+                        last_month_raw = None
+                
 
-                constraints_raw = get_df(f"{mmyy}C", header_row=1)
-                constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
-                holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
-                partners_raw = get_df("Partners", header_row=0, use_cols=5)
-                namelist_raw = get_df("Namelist", header_row=0, use_cols=3)
+                with st.spinner("🧠 Solving Optimisation..."):
 
-                try:
-                    last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
-                except:
-                    st.warning("Previous month data not found.")
-                    last_month_raw = None
-            
+                    data_bundle = {
+                        "constraints": constraints_raw,
+                        "holidays": holidays_raw,
+                        "year": 2000 + int(mmyy[2:]),
+                        "year_old": 2000 + y_old,
+                        "month": int(mmyy[:2]),
+                        "month_old": m_old,
+                        "partners": partners_raw,
+                        "namelist": namelist_raw,
+                        "last_month": last_month_raw
+                    }
 
-            with st.spinner("🧠 Solving Optimisation..."):
+                    planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
 
-                data_bundle = {
-                    "constraints": constraints_raw,
-                    "holidays": holidays_raw,
-                    "year": 2000 + int(mmyy[2:]),
-                    "year_old": 2000 + y_old,
-                    "month": int(mmyy[:2]),
-                    "month_old": m_old,
-                    "partners": partners_raw,
-                    "namelist": namelist_raw,
-                    "last_month": last_month_raw
-                }
+                    if planned_df is not None:
+                        st.session_state['planned_df'] = planned_df
+                        st.session_state['n_scale'] = n_scale
+                        st.session_state['ranges'] = ranges
+                        st.session_state['active_sh_name'] = sh.title
 
-                planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
+                        st.success("✅ Optimisation Successful!")
+                        state = "complete"
+                    else:
+                        st.warning("❌ No Solution Found")
+                        state = "error"
 
-                if planned_df is not None:
-                    st.session_state['planned_df'] = planned_df
-                    st.session_state['n_scale'] = n_scale
-                    st.session_state['ranges'] = ranges
-                    st.session_state['active_sh_name'] = sh.title
-
-                    st.success("✅ Optimisation Successful!")
-                    state = "complete"
-                else:
-                    st.warning("❌ No Solution Found")
-                    state = "error"
-
-        except Exception:
-            st.error("🚨 Critical Error Detected")
-            st.code(traceback.format_exc())
+            except Exception:
+                st.error("🚨 Critical Error Detected")
+                st.code(traceback.format_exc())
 
 
     # planning buttons
 
     final_name = st.session_state.get('active_sh_name', spreadsheet_name)
 
-    if st.button("💾 Save to Google Sheets (Output D)"):
-        if 'planned_df' in st.session_state:
-            # 1. archive the original MMYYC using personal Drive account
-            with st.spinner("🧳 Creating Archive..."):
-                personal_drive = get_personal_drive_service()
-                folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-                planner_engine.archive_source_sheet(client, final_name, mmyy, folder_id, personal_drive)
-            
-            # 2. write output
-            with st.spinner("✏️ Writing Output..."):
-                out_name = planner_engine.create_backup_and_output(
-                    client, final_name, mmyy,
-                    st.session_state['planned_df'],
-                    st.session_state['n_scale'],
-                    st.session_state['ranges']
-                )
+    col1, col2 = st.columns([2,3])
 
-            # 3. create next month template
-            with st.spinner("⏭️ Preparing Next Month..."):
-                _, next_file_name = planner_engine.generate_next_month_template(
-                    client, final_name, mmyy,
-                    st.session_state['planned_df'],
-                    st.session_state['ranges']
-                )
+    with col1:
+        st.write("Step 2:")
+    
+    with col2:
+        if st.button("💾 Save to Google Sheets (Output D)"):
+            if 'planned_df' in st.session_state:
+                # 1. archive the original MMYYC using personal Drive account
+                with st.spinner("🧳 Creating Archive..."):
+                    personal_drive = get_personal_drive_service()
+                    folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+                    planner_engine.archive_source_sheet(client, final_name, mmyy, folder_id, personal_drive)
+                
+                # 2. write output
+                with st.spinner("✏️ Writing Output..."):
+                    out_name = planner_engine.create_backup_and_output(
+                        client, final_name, mmyy,
+                        st.session_state['planned_df'],
+                        st.session_state['n_scale'],
+                        st.session_state['ranges']
+                    )
 
-                sh = client.open(final_name)
-                sh.update_title(next_file_name)
+                # 3. create next month template
+                with st.spinner("⏭️ Preparing Next Month..."):
+                    _, next_file_name = planner_engine.generate_next_month_template(
+                        client, final_name, mmyy,
+                        st.session_state['planned_df'],
+                        st.session_state['ranges']
+                    )
 
-                st.success(f"Done! File renamed to **{next_file_name}**")
-                st.session_state.pop('planned_df', None)
-        else:
-            st.warning("Run the optimiser first!")
+                    sh = client.open(final_name)
+                    sh.update_title(next_file_name)
+
+                    st.success(f"Done! File renamed to **{next_file_name}**")
+                    st.session_state.pop('planned_df', None)
+            else:
+                st.warning("Run the optimiser first!")
 
     st.markdown("---")
 
