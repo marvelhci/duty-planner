@@ -206,6 +206,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     hard1s = model_constraints.get('hard1s', 2)
     hard2s = model_constraints.get('hard2s', 2)
     scalefactor = model_constraints.get('scalefactor', 4)
+    sbf_val = model_constraints.get('sbf_val', 2)
 
     # --------------------------------------------------
     # INSPECT RANGES
@@ -650,7 +651,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     # --------------------------------------------------
 
     # define point scales and constants
-    SBF_BONUS = int(2 * SCALE) # make it a slider HERE HERE HERE
+    SBF_BONUS = int(sbf_val * SCALE)
 
     final_scores = {}
     duty_counts = {}

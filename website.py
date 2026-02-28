@@ -269,6 +269,9 @@ if role == 'Admin':
     if "scalefactor_slider" not in st.session_state:
         st.session_state["scalefactor_slider"] = 4
         st.session_state["scalefactor_input"] = 4
+    if "sbf_slider" not in st.session_state:
+        st.session_state["sbf_slider"] = 2
+        st.session_state["sbf_input"] = 2
 
     with col_slider:
         hard1_val = st.slider("Number of Duties Per Day", 0, 4, key="hard1_slider", on_change=update_input, args=("hard1",), step=1)
@@ -277,6 +280,7 @@ if role == 'Admin':
         hard1s_val = st.slider("Number of Standbys Per Day", 0, 4, key="hard1s_slider", on_change=update_input, args=("hard1s",), step=1)
         hard2s_val = st.slider("Gap between S and/or D", 0, 10, key="hard2s_slider", on_change=update_input, args=("hard2s",), step=1)
         scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", on_change=update_input, args=("scalefactor",), step=1)
+        sbf_val = st.slider("SB Bonus", 0, 5, key="sbf_slider", on_change=update_input, args=("sbf",), step=1)
 
     with col_input:
         hard1_manual = st.number_input("Label", 0, 4, key="hard1_input", on_change=update_slider, args=("hard1",), label_visibility="collapsed")
@@ -290,6 +294,8 @@ if role == 'Admin':
         hard2s_manual = st.number_input("Label", 0, 10, key="hard2s_input", on_change=update_slider, args=("hard2s",), label_visibility="collapsed")
         st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
         scalefactor_manual = st.number_input("Label", 0, 5, key="scalefactor_input", on_change=update_slider, args=("scalefactor",), label_visibility="collapsed")
+        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+        sbf_manual = st.number_input("Label", 0, 5, key="sbf_input", on_change=update_slider, args=("sbf",), label_visibility="collapsed")
 
     model_constraints = {
         "hard1": hard1_val,
@@ -297,7 +303,8 @@ if role == 'Admin':
         "hard5": hard5_val,
         "hard1s": hard1s_val,
         "hard2s": hard2s_val,
-        "scalefactor": scalefactor_val
+        "scalefactor": scalefactor_val,
+        "sbf_val": sbf_val
     }
 
 # main interface
@@ -321,6 +328,12 @@ if role == 'Admin':
         y_new = curr_y + 1
     else:
         y_new = curr_y
+    m_old = curr_m - 1
+    if curr_m == 1:
+        m_old = 12
+        y_old = curr_y - 1
+    else:
+        y_old = curr_y
 
     next_file_display = f"{m_new:02d}{y_new:02d}C"
 
@@ -361,9 +374,7 @@ if role == 'Admin':
                 namelist_raw = get_df("Namelist", header_row=0, use_cols=3)
 
                 try:
-                    prev_m = curr_m - 1 if curr_m > 1 else 12
-                    prev_y = curr_y if curr_m > 1 else curr_y - 1
-                    last_month_raw = get_df(f"{prev_m:02d}{prev_y:02d}D", header_row=1)
+                    last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
                 except:
                     st.warning("Previous month data not found.")
                     last_month_raw = None
@@ -375,9 +386,9 @@ if role == 'Admin':
                     "constraints": constraints_raw,
                     "holidays": holidays_raw,
                     "year": 2000 + int(mmyy[2:]),
-                    "year_old": 2000 + prev_y,
+                    "year_old": 2000 + y_old,
                     "month": int(mmyy[:2]),
-                    "month_old": prev_m,
+                    "month_old": m_old,
                     "partners": partners_raw,
                     "namelist": namelist_raw,
                     "last_month": last_month_raw
@@ -445,7 +456,7 @@ if role == 'Admin':
 
     st.markdown("### 🔄 Manual Duty Adjustments")
 
-    target_sheet_name = f"{mmyy}C"
+    target_sheet_name = f"{mmyy}D"
 
     try:
         personal_drive = get_personal_drive_service()
@@ -623,7 +634,7 @@ if role == 'User':
 
     with st.form("user_submission_form"):
         st.subheader("Step 3: Finalize Details")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             d_options = ["NON-DRIVER", "DRIVER", "RIDER"]
@@ -637,19 +648,15 @@ if role == 'User':
 
         with col3:
             s_options = ["", "EXCUSED", "SBF", "NEW"]
-            # check if defaults has status_string, otherwise default to empty
-            selected_status = st.multiselect("Your Status", options=s_options)
-            status_string_out = ", ".join(selected_status)
-            excused_reason = ""
-            if "EXCUSED" in selected_status:
-                excused_reason = st.text_input("Reason:", placeholder="e.g., Medical", key="excused_input")
-            final_status_parts = []
-            for s in selected_status:
-                if s == "EXCUSED":
-                    final_status_parts.append(f"EXCUSED: {excused_reason}" if excused_reason else "EXCUSED")
-                else:
-                    final_status_parts.append(s)
-            status_string_out = ", ".join(final_status_parts)
+            s_idx = 0
+            selected_status = st.multiselect("Your Status (If Applicable)", options=s_options, default=s_options[s_idx])
+
+        with col4:
+            excused_reason = st.text_input("Reason (if EXCUSED)", placeholder="e.g. Medical appointment...")
+            if excused_reason and "EXCUSED" in selected_status:
+                status_string = ", ".join(selected_status) + f" ({excused_reason})"
+            else:
+                status_string = ", ".join(selected_status)
             
         final_constraints = st.text_input("Constraints (X)", value=constraints_string)
         final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
@@ -659,7 +666,7 @@ if role == 'User':
                 success, logs = user_engine.update_user_data(
                     client, spreadsheet_name, view_mmyy, 
                     selected_name, selected_partner, 
-                    driving_status, final_constraints, final_preferences, status_string_out
+                    driving_status, final_constraints, final_preferences, status_string
                 )
                 if success:
                     st.success("Preferences updated successfully!")
