@@ -316,7 +316,7 @@ if role == 'Admin':
 
     try:
         client = get_gspread_auth()
-        st.success("✅ Connected to Google Account")
+        #st.success("✅ Connected to Google Account")
     except Exception as e:
         st.error(f"❌ Connection Error: {e}")
         st.stop()
@@ -335,9 +335,27 @@ if role == 'Admin':
     else:
         y_old = curr_y
 
-    next_file_display = f"{m_new:02d}{y_new:02d}C"
+    next_file_display = f"{m_new:02d}{y_new:02d}"
 
-    st.info(f"Targeting Spreadsheet: **{spreadsheet_name}** | Sheet: **{mmyy}C** | New Month File: **{next_file_display}**")
+    st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
+
+    try:
+        personal_drive = get_personal_drive_service()
+        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+        gs_query = (
+            f"name = '{spreadsheet_name}' "
+            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+            f"and trashed = false "
+            f"and '{folder_id}' in parents"
+        )
+        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+        files = results.get('files', [])
+        if files:
+            st.success(f"✅ Found: {spreadsheet_name}")
+        else:
+            st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+    except Exception as e:
+        st.error(f"❌ Drive check failed: {e}")
     
     col1, col2 = st.columns([2,3])
 

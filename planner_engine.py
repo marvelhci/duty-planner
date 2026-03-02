@@ -29,7 +29,7 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
     offset_col_idx = ranges['constraints_col'] + 1
     
     # clear the duty grid area
-    output_ws.batch_clear([f"F{row_start+3}:AJ{row_end+3}"])
+    output_ws.batch_clear([f"F{row_start+2}:AJ{row_end+2}"])
     
     updates = []
     for r_idx in range(row_start, row_end + 1):
