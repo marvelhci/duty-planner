@@ -673,8 +673,8 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
     manual_adjustments = {}
     if isinstance(last_month_df, pd.DataFrame):
-        # iterate from row 36 onwards
-        for i in range(36, row_end+ 1):
+        # iterate from row 115 onwards
+        for i in range(114, row_end+ 1):
             raw_name = last_month_df.iat[i, 48]
             if pd.isna(raw_name) or str(raw_name).strip() == "":
                 continue

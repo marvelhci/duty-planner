@@ -531,7 +531,7 @@ if role == 'Admin':
                     
                     # find next row in column AW (49)
                     col_aw_values = adj_ws.col_values(49)
-                    next_row = max(37, len(col_aw_values) + 1)
+                    next_row = max(115, len(col_aw_values) + 1)
 
                     updates = [
                         {'range': f'AW{next_row}:AX{next_row}', 'values': [[person_minus.upper(), f"MINUS 1X {suffix}"]]},
