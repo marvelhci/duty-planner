@@ -392,28 +392,19 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     is_driver = {}
     is_non_driver = {}
 
-    for i in range(1, len(partners_df)):
+    for i in range(len(namelist_df)):
+        person_name = str(namelist_df.iloc[i, 1]).strip().upper()
+        designation = str(namelist_df.iloc[i, 3]).strip().upper()  # column D
 
-        # column 1 & 2 (pair 1), column 3 & 4 (pair 2)
-        pairs = [(1, 2), (3, 4)]
+        if person_name == "NAN" or not person_name:
+            continue
 
-        for name_col, desig_col in pairs:
-            person_name = str(partners_df.iloc[i, name_col]).strip().upper()
-            designation = str(partners_df.iloc[i, desig_col]).strip().upper()
-
-            # skip processing if the name cell is empty or invalid
-            if person_name == "NAN" or not person_name:
-                continue
-
-            if person_name in name_to_row:
-                row_idx = name_to_row[person_name]
-
-                # categorise based on the designation text
-                if designation == "DRIVER":
-                    is_driver[row_idx] = True
-                else:
-                    # any other designation defaults to non-driver
-                    is_non_driver[row_idx] = True
+        if person_name in name_to_row:
+            row_idx = name_to_row[person_name]
+            if designation == "DRIVER":
+                is_driver[row_idx] = True
+            else:
+                is_non_driver[row_idx] = True
     
     # partner set-up
 

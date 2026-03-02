@@ -401,7 +401,7 @@ if role == 'Admin':
                     constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
                     holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
                     partners_raw = get_df("Partners", header_row=0, use_cols=5)
-                    namelist_raw = get_df("Namelist", header_row=0, use_cols=3)
+                    namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
 
                     try:
                         last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)

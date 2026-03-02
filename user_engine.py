@@ -12,16 +12,20 @@ def get_namelist(client, spreadsheet_name):
         print(f"Error fetching namelist: {e}")
         return []
 
-def get_person_driving_status(p_ws, name):
-    """Helper to find any person's status in the Partners sheet."""
+def get_person_driving_status(p_ws, name, nl_ws=None):
+    """Helper to find any person's driving status, preferring Namelist sheet."""
     if not name or name == "None": return ""
+    if nl_ws:
+        try:
+            cell = nl_ws.find(name, in_column=2)
+            return nl_ws.cell(cell.row, 4).value or "NON-DRIVER"
+        except:
+            return "NON-DRIVER"
     try:
-        # check first name (column B, status in column C)
         cell = p_ws.find(name, in_column=2)
         return p_ws.cell(cell.row, 3).value
     except:
         try:
-            # check first name (column D, status in column E)
             cell = p_ws.find(name, in_column=4)
             return p_ws.cell(cell.row, 5).value
         except:
@@ -32,25 +36,32 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
     try:
         sh = client.open(spreadsheet_name)
         p_ws = sh.worksheet("Partners")
+        nl_ws = sh.worksheet("Namelist")
         c_ws = sh.worksheet(f"{mmyy}C")
-        
-        # get partner and driving information
-        partner, driving = "None", "NON-DRIVER"
+
+        # get driving status from Namelist sheet column D
+        driving = "NON-DRIVER"
         try:
-            cell = p_ws.find(user_name, in_column=2) # search column B
+            nl_cell = nl_ws.find(user_name, in_column=2)
+            driving = nl_ws.cell(nl_cell.row, 4).value or "NON-DRIVER"
+        except:
+            pass
+
+        # get partner from Partners sheet
+        partner = "None"
+        try:
+            cell = p_ws.find(user_name, in_column=2)
             partner = p_ws.cell(cell.row, 4).value or "None"
-            driving = p_ws.cell(cell.row, 3).value or "NON-DRIVER"
         except:
             try:
-                cell = p_ws.find(user_name, in_column=4) # search column D
+                cell = p_ws.find(user_name, in_column=4)
                 partner = p_ws.cell(cell.row, 2).value or "None"
-                driving = p_ws.cell(cell.row, 5).value or "NON-DRIVER"
-            except: pass
+            except:
+                pass
 
         # get X and D markers
         user_cell = c_ws.find(user_name, in_column=2)
         row_values = c_ws.row_values(user_cell.row)
-        # column F is index 5, days 1-31
         c_list = [str(i+1) for i, v in enumerate(row_values[5:36]) if v == 'X']
         p_list = [str(i+1) for i, v in enumerate(row_values[5:36]) if v == 'D']
 
@@ -68,7 +79,16 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
     try:
         sh = client.open(spreadsheet_name)
         p_ws = sh.worksheet("Partners")
-        
+        nl_ws = sh.worksheet("Namelist")
+
+        # update driving status in Namelist sheet column D
+        try:
+            nl_cell = nl_ws.find(user_name, in_column=2)
+            nl_ws.update_acell(f'D{nl_cell.row}', driving_status)
+            logs.append(f"✅ Step 1a: Updated driving status in Namelist for {user_name}")
+        except:
+            logs.append(f"⚠️ Could not update driving status in Namelist for {user_name}")
+
         # find user in partners sheet
         cell = None
         is_primary = True
@@ -85,31 +105,27 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         if cell:
             row_idx = cell.row
             partner_name = partner if partner != "None" else ""
-            partner_driving_status = get_person_driving_status(p_ws, partner_name)
-            
+            partner_driving_status = get_person_driving_status(p_ws, partner_name, nl_ws)
+
             if is_primary:
-                # user in B: update C (user status) and D/E (partner mame/partner status)
                 p_updates = [
-                    {'range': f'C{row_idx}', 'values': [[driving_status]]},
                     {'range': f'D{row_idx}', 'values': [[partner_name]]},
                     {'range': f'E{row_idx}', 'values': [[partner_driving_status]]}
                 ]
             else:
-                # user in D: update E (user status) and B/C (partner name/partner status)
                 p_updates = [
-                    {'range': f'E{row_idx}', 'values': [[driving_status]]},
                     {'range': f'B{row_idx}', 'values': [[partner_name]]},
                     {'range': f'C{row_idx}', 'values': [[partner_driving_status]]}
                 ]
-            
-            p_ws.batch_update(p_updates, value_input_option='USER_ENTERED')
-            logs.append(f"✅ Step 1: Updated Partners sheet for {user_name} and partner {partner_name}")
 
-        # update sheet
+            p_ws.batch_update(p_updates, value_input_option='USER_ENTERED')
+            logs.append(f"✅ Step 1b: Updated Partners sheet for {user_name} and partner {partner_name}")
+
+        # update constraint sheet
         c_ws = sh.worksheet(f"{mmyy}C")
         user_cell = c_ws.find(user_name, in_column=2)
         u_row = user_cell.row
-        date_start_col = 6 
+        date_start_col = 6
         date_end_col = 36
         c_updates = []
 
@@ -122,8 +138,8 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
                 first = chr(64 + (n - 1) // 26)
                 second = chr(64 + (n - 1) % 26 + 1)
                 return f"{first}{second}"
-            
-        # wipes existing data in the sheet
+
+        # wipe existing data
         clear_range = f"{get_col_let(date_start_col)}{u_row}:{get_col_let(date_end_col)}{u_row}"
         blank_row = [["" for _ in range(31)]]
         c_ws.update(clear_range, blank_row)
@@ -132,7 +148,7 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
             for day in [d.strip() for d in constraints.split(',') if d.strip().isdigit()]:
                 col_let = get_col_let(date_start_col + int(day) - 1)
                 c_updates.append({'range': f'{col_let}{u_row}', 'values': [['X']]})
-        
+
         if preferences:
             for day in [d.strip() for d in preferences.split(',') if d.strip().isdigit()]:
                 col_let = get_col_let(date_start_col + int(day) - 1)
@@ -141,7 +157,7 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         if c_updates:
             c_ws.batch_update(c_updates, value_input_option='USER_ENTERED')
             logs.append(f"✅ Step 2: Updated {mmyy}C markers.")
-        
+
         return True, logs
 
     except Exception as e:
