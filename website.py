@@ -4,6 +4,7 @@ import gspread
 import planner_engine
 import user_engine
 import traceback
+import calendar
 from datetime import date, timedelta
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
@@ -505,7 +506,7 @@ if role == 'Admin':
     if admin_page == "✏️ Editing":
 
         mmyy = st.text_input("Month/Year (MMYY)", value="0126")
-        spreadsheet_name = f"Plan_Duty_{mmyy}"
+        spreadsheet_name = "MASTER SHEET"
 
         try:
             client = get_gspread_auth()
@@ -530,7 +531,7 @@ if role == 'Admin':
 
         next_file_display = f"{m_new:02d}{y_new:02d}"
 
-        st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
+        st.info(f"Editing **{mmyy}**!")
 
         try:
             personal_drive = get_personal_drive_service()
@@ -549,6 +550,62 @@ if role == 'Admin':
                 st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
         except Exception as e:
             st.error(f"❌ Drive check failed: {e}")
+
+        roster_data, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+
+        sh = client.open(spreadsheet_name)
+        
+        if err:
+            st.info(f"Roster not yet finalized or accessible: {err}")
+        else:
+            # 1. Setup Days of Week Header
+            days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            header_cols = st.columns(7)
+            for i, day_name in enumerate(days_of_week):
+                header_cols[i].markdown(
+                    f"""<div style="background-color: black; color: white; 
+                    padding: 5px; border-radius: 5px; text-align: center; 
+                    font-weight: bold; margin-bottom: 10px;">
+                    {day_name}</div>""", 
+                    unsafe_allow_html=True
+                )
+
+            # 2. Date Math
+            first_day = date(curr_y, curr_m, 1)
+            start_padding = first_day.weekday() # 0=Mon
+            num_days = calendar.monthrange(curr_y, curr_m)[1]
+            
+            # 3. Grid Rendering
+            current_col = start_padding
+            cal_cols = st.columns(7)
+            
+            # Padding for start of month
+            for i in range(start_padding):
+                cal_cols[i].write("")
+
+            # Loop through month days
+            for day in range(1, num_days + 1):
+                with cal_cols[current_col]:
+                    with st.container(border=True):
+                        # Day Number
+                        st.markdown(f"**{day}**")
+                        
+                        day_info = roster_data.get(str(day), {"duty": [], "standby": []})
+                        
+                        # Render Duties (🚨)
+                        for d_name in day_info["duty"]:
+                            st.markdown(f"<div style='font-size:11px; color:#d32f2f; line-height:1.2;'>🚨 {d_name}</div>", unsafe_allow_html=True)
+                        
+                        # Render Standbys (⏳)
+                        for s_name in day_info["standby"]:
+                            st.markdown(f"<div style='font-size:11px; color:#f57c00; line-height:1.2;'>⏳ {s_name}</div>", unsafe_allow_html=True)
+
+                # Handle column wrapping
+                current_col += 1
+                if current_col > 6:
+                    current_col = 0
+                    if day < num_days: # Only create new row if days remain
+                        cal_cols = st.columns(7)
 
         # manual adjustments writing
 

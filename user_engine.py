@@ -186,3 +186,42 @@ def format_date_list(history_collection):
                 day_nums.add(item)
         
         return ", ".join(map(str, sorted(list(day_nums))))
+
+def calendar_view(client, spreadsheet_name, mmyy):
+    """
+    Parses the horizontal planning sheet (Col E-AI) into a dictionary 
+    indexed by day number for calendar rendering.
+    """
+    try:
+        sh = client.open(spreadsheet_name)
+        worksheet = sh.worksheet(f"{mmyy}D")
+        raw_data = worksheet.get_all_values()
+
+        rows = raw_data[3:]
+        
+        # Initialize dictionary for 31 days
+        roster = {str(day): {"duty": [], "standby": []} for day in range(1, 32)}
+
+        for row in rows:
+            if not row or len(row) < 2 or not row[1].strip(): 
+                break
+
+            name = row[1].strip()
+
+            for i in range(31):
+                col_idx = 4 + i
+                if col_idx >= len(row):
+                    break
+            
+                day_num = str(i + 1)
+                planned_status = row[col_idx].strip().upper()
+
+                if day_num in roster:
+                    if planned_status == 'D':
+                        roster[day_num]["duty"].append(name)
+                    elif planned_status == 'S':
+                        roster[day_num]["standby"].append(name)
+        
+        return roster, None
+    except Exception as e:
+        return None, str(e)
