@@ -160,406 +160,468 @@ if "hard4_initialised" not in st.session_state:
 
 if role == 'Admin':
 
-# planning parameters
-
-    def update_slider(key):
-        st.session_state[key + "_slider"] = st.session_state[key + "_input"]
-
-    def update_input(key):
-        st.session_state[key + "_input"] = st.session_state[key + "_slider"]
-
-    st.sidebar.title("📅 Planning Settings")
-
-    st.sidebar.subheader("⚖️ Soft Constraint Weights")
-
-    col_slider, col_input = st.sidebar.columns([3, 1])
-
-    if "S1_slider" not in st.session_state:
-        st.session_state["S1_slider"] = 100
-        st.session_state["S1_input"] = 100
-    if "S2_slider" not in st.session_state:
-        st.session_state["S2_slider"] = 60
-        st.session_state["S2_input"] = 60
-    if "S3_slider" not in st.session_state:
-        st.session_state["S3_slider"] = 10
-        st.session_state["S3_input"] = 10
-    if "S4_slider" not in st.session_state:
-        st.session_state["S4_slider"] = 400
-        st.session_state["S4_input"] = 400
-
-    with col_slider:
-        s1_val = st.slider("Follow Pairings", 0, 500, key="S1_slider", on_change=update_input, args=("S1",), step=10)
-        s2_val = st.slider("Different Branches", 0, 500, key="S2_slider", on_change=update_input, args=("S2",), step=10)
-        s3_val = st.slider("Driver Mix", 0, 500, key="S3_slider", on_change=update_input, args=("S3",), step=10)
-        s4_val = st.slider("Minimum 1x D", 0, 500, key="S4_slider", on_change=update_input, args=("S4",), step=10)
-
-    with col_input:
-        s1_manual = st.number_input("Label", 0, 500, key="S1_input", on_change=update_slider, args=("S1",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        s2_manual = st.number_input("Label", 0, 500, key="S2_input", on_change=update_slider, args=("S2",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        s3_manual = st.number_input("Label", 0, 500, key="S3_input", on_change=update_slider, args=("S3",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        s4_manual = st.number_input("Label", 0, 500, key="S4_input", on_change=update_slider, args=("S4",), label_visibility="collapsed")
-
-    config = {
-        "S1": s1_val,
-        "S2": s2_val,
-        "S3": s3_val,
-        "S4": s4_val
-    }
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💯 Point Allocations")
-
-    col_slider, col_input = st.sidebar.columns([3, 1])
-
-    if "weekday_slider" not in st.session_state:
-        st.session_state["weekday_slider"] = 1.0
-        st.session_state["weekday_input"] = 1.0
-    if "friday_slider" not in st.session_state:
-        st.session_state["friday_slider"] = 1.5
-        st.session_state["friday_input"] = 1.5
-    if "weekend_slider" not in st.session_state:
-        st.session_state["weekend_slider"] = 2.0
-        st.session_state["weekend_input"] = 2.0
-    if "holiday_slider" not in st.session_state:
-        st.session_state["holiday_slider"] = 2.0
-        st.session_state["holiday_input"] = 2.0
-
-    with col_slider:
-        weekday_val = st.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", on_change=update_input, args=("weekday",), step=0.5)
-        friday_val = st.slider("Friday Points", 0.0, 10.0, key="friday_slider", on_change=update_input, args=("friday",), step=0.5)
-        weekend_val = st.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", on_change=update_input, args=("weekend",), step=0.5)
-        holiday_val = st.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", on_change=update_input, args=("holiday",), step=0.5)
-
-    with col_input:
-        weekday_manual = st.number_input("Label", 0.0, 10.0, key="weekday_input", on_change=update_slider, args=("weekday",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        friday_manual = st.number_input("Label", 0.0, 10.0, key="friday_input", on_change=update_slider, args=("friday",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        weekend_manual = st.number_input("Label", 0.0, 10.0, key="weekend_input", on_change=update_slider, args=("weekend",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        holiday_manual = st.number_input("Label", 0.0, 10.0, key="holiday_input", on_change=update_slider, args=("holiday",), label_visibility="collapsed")
-
-    point_allocations = {
-        "weekday_points": weekday_val,
-        "friday_points": friday_val,
-        "weekend_points": weekend_val,
-        "holiday_points": holiday_val
-    }
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔓 Model Constraints")
-
-    col_slider, col_input = st.sidebar.columns([3, 1])
-
-    if "hard1_slider" not in st.session_state:
-        st.session_state["hard1_slider"] = 2
-        st.session_state["hard1_input"] = 2
-    if "hard5_slider" not in st.session_state:
-        st.session_state["hard5_slider"] = 3
-        st.session_state["hard5_input"] = 3
-    if "hard1s_slider" not in st.session_state:
-        st.session_state["hard1s_slider"] = 2
-        st.session_state["hard1s_input"] = 2
-    if "hard2s_slider" not in st.session_state:
-        st.session_state["hard2s_slider"] = 2
-        st.session_state["hard2s_input"] = 2
-    if "scalefactor_slider" not in st.session_state:
-        st.session_state["scalefactor_slider"] = 4
-        st.session_state["scalefactor_input"] = 4
-    if "sbf_slider" not in st.session_state:
-        st.session_state["sbf_slider"] = 2
-        st.session_state["sbf_input"] = 2
-
-    with col_slider:
-        hard1_val = st.slider("Number of Duties Per Day", 0, 4, key="hard1_slider", on_change=update_input, args=("hard1",), step=1)
-        hard4_val = st.slider("Gap Between Duties", 0, 10, key="hard4_slider", on_change=update_input, args=("hard4",), step=1)
-        hard5_val = st.slider("Maximum No. of Duties", 0, 5, key="hard5_slider", on_change=update_input, args=("hard5",), step=1)
-        hard1s_val = st.slider("Number of Standbys Per Day", 0, 4, key="hard1s_slider", on_change=update_input, args=("hard1s",), step=1)
-        hard2s_val = st.slider("Gap between S and/or D", 0, 10, key="hard2s_slider", on_change=update_input, args=("hard2s",), step=1)
-        scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", on_change=update_input, args=("scalefactor",), step=1)
-        sbf_val = st.slider("SB Bonus", 0, 5, key="sbf_slider", on_change=update_input, args=("sbf",), step=1)
-
-    with col_input:
-        hard1_manual = st.number_input("Label", 0, 4, key="hard1_input", on_change=update_slider, args=("hard1",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        hard4_manual = st.number_input("Label", 0, 10, key="hard4_input", on_change=update_slider, args=("hard4",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        hard5_manual = st.number_input("Label", 0, 5, key="hard5_input", on_change=update_slider, args=("hard5",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        hard1s_manual = st.number_input("Label", 0, 4, key="hard1s_input", on_change=update_slider, args=("hard1s",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        hard2s_manual = st.number_input("Label", 0, 10, key="hard2s_input", on_change=update_slider, args=("hard2s",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        scalefactor_manual = st.number_input("Label", 0, 5, key="scalefactor_input", on_change=update_slider, args=("scalefactor",), label_visibility="collapsed")
-        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-        sbf_manual = st.number_input("Label", 0, 5, key="sbf_input", on_change=update_slider, args=("sbf",), label_visibility="collapsed")
-
-    model_constraints = {
-        "hard1": hard1_val,
-        "hard4": hard4_val,
-        "hard5": hard5_val,
-        "hard1s": hard1s_val,
-        "hard2s": hard2s_val,
-        "scalefactor": scalefactor_val,
-        "sbf_val": sbf_val
-    }
-
-# main interface
+    # --------------------------------------------------
+    # ADMIN PAGE NAVIGATION
+    # --------------------------------------------------
 
     st.title("🚀 Duty Planner")
 
-    mmyy = st.text_input("Month/Year (MMYY)", value="0126")
-    spreadsheet_name = f"Plan_Duty_{mmyy}"
+    admin_page = st.sidebar.segmented_control(
+        "",
+        options=["🗓 Planning", "✏️ Editing"],
+    )
 
-    try:
-        client = get_gspread_auth()
-        #st.success("✅ Connected to Google Account")
-    except Exception as e:
-        st.error(f"❌ Connection Error: {e}")
-        st.stop()
+    # --------------------------------------------------
+    # PLANNING PAGE
+    # --------------------------------------------------
 
-    curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
-    m_new = curr_m + 1 
-    if m_new > 12:
-        m_new = 1
-        y_new = curr_y + 1
-    else:
-        y_new = curr_y
-    m_old = curr_m - 1
-    if curr_m == 1:
-        m_old = 12
-        y_old = curr_y - 1
-    else:
-        y_old = curr_y
+    if admin_page == "🗓 Planning":
+    
+        st.title ("🗓 Planning")
 
-    next_file_display = f"{m_new:02d}{y_new:02d}"
+        # planning parameters
 
-    st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
+        def update_slider(key):
+            st.session_state[key + "_slider"] = st.session_state[key + "_input"]
 
-    try:
-        personal_drive = get_personal_drive_service()
-        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-        gs_query = (
-            f"name = '{spreadsheet_name}' "
-            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-            f"and trashed = false "
-            f"and '{folder_id}' in parents"
-        )
-        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-        files = results.get('files', [])
-        if files:
-            st.success(f"✅ Found: {spreadsheet_name}")
+        def update_input(key):
+            st.session_state[key + "_input"] = st.session_state[key + "_slider"]
+
+        st.sidebar.title("📅 Planning Settings")
+
+        st.sidebar.subheader("⚖️ Soft Constraint Weights")
+
+        col_slider, col_input = st.sidebar.columns([3, 1])
+
+        if "S1_slider" not in st.session_state:
+            st.session_state["S1_slider"] = 100
+            st.session_state["S1_input"] = 100
+        if "S2_slider" not in st.session_state:
+            st.session_state["S2_slider"] = 60
+            st.session_state["S2_input"] = 60
+        if "S3_slider" not in st.session_state:
+            st.session_state["S3_slider"] = 10
+            st.session_state["S3_input"] = 10
+        if "S4_slider" not in st.session_state:
+            st.session_state["S4_slider"] = 400
+            st.session_state["S4_input"] = 400
+
+        with col_slider:
+            s1_val = st.slider("Follow Pairings", 0, 500, key="S1_slider", on_change=update_input, args=("S1",), step=10)
+            s2_val = st.slider("Different Branches", 0, 500, key="S2_slider", on_change=update_input, args=("S2",), step=10)
+            s3_val = st.slider("Driver Mix", 0, 500, key="S3_slider", on_change=update_input, args=("S3",), step=10)
+            s4_val = st.slider("Minimum 1x D", 0, 500, key="S4_slider", on_change=update_input, args=("S4",), step=10)
+
+        with col_input:
+            s1_manual = st.number_input("Label", 0, 500, key="S1_input", on_change=update_slider, args=("S1",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            s2_manual = st.number_input("Label", 0, 500, key="S2_input", on_change=update_slider, args=("S2",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            s3_manual = st.number_input("Label", 0, 500, key="S3_input", on_change=update_slider, args=("S3",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            s4_manual = st.number_input("Label", 0, 500, key="S4_input", on_change=update_slider, args=("S4",), label_visibility="collapsed")
+
+        config = {
+            "S1": s1_val,
+            "S2": s2_val,
+            "S3": s3_val,
+            "S4": s4_val
+        }
+
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("💯 Point Allocations")
+
+        col_slider, col_input = st.sidebar.columns([3, 1])
+
+        if "weekday_slider" not in st.session_state:
+            st.session_state["weekday_slider"] = 1.0
+            st.session_state["weekday_input"] = 1.0
+        if "friday_slider" not in st.session_state:
+            st.session_state["friday_slider"] = 1.5
+            st.session_state["friday_input"] = 1.5
+        if "weekend_slider" not in st.session_state:
+            st.session_state["weekend_slider"] = 2.0
+            st.session_state["weekend_input"] = 2.0
+        if "holiday_slider" not in st.session_state:
+            st.session_state["holiday_slider"] = 2.0
+            st.session_state["holiday_input"] = 2.0
+
+        with col_slider:
+            weekday_val = st.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", on_change=update_input, args=("weekday",), step=0.5)
+            friday_val = st.slider("Friday Points", 0.0, 10.0, key="friday_slider", on_change=update_input, args=("friday",), step=0.5)
+            weekend_val = st.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", on_change=update_input, args=("weekend",), step=0.5)
+            holiday_val = st.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", on_change=update_input, args=("holiday",), step=0.5)
+
+        with col_input:
+            weekday_manual = st.number_input("Label", 0.0, 10.0, key="weekday_input", on_change=update_slider, args=("weekday",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            friday_manual = st.number_input("Label", 0.0, 10.0, key="friday_input", on_change=update_slider, args=("friday",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            weekend_manual = st.number_input("Label", 0.0, 10.0, key="weekend_input", on_change=update_slider, args=("weekend",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            holiday_manual = st.number_input("Label", 0.0, 10.0, key="holiday_input", on_change=update_slider, args=("holiday",), label_visibility="collapsed")
+
+        point_allocations = {
+            "weekday_points": weekday_val,
+            "friday_points": friday_val,
+            "weekend_points": weekend_val,
+            "holiday_points": holiday_val
+        }
+
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔓 Model Constraints")
+
+        col_slider, col_input = st.sidebar.columns([3, 1])
+
+        if "hard1_slider" not in st.session_state:
+            st.session_state["hard1_slider"] = 2
+            st.session_state["hard1_input"] = 2
+        if "hard5_slider" not in st.session_state:
+            st.session_state["hard5_slider"] = 3
+            st.session_state["hard5_input"] = 3
+        if "hard1s_slider" not in st.session_state:
+            st.session_state["hard1s_slider"] = 2
+            st.session_state["hard1s_input"] = 2
+        if "hard2s_slider" not in st.session_state:
+            st.session_state["hard2s_slider"] = 2
+            st.session_state["hard2s_input"] = 2
+        if "scalefactor_slider" not in st.session_state:
+            st.session_state["scalefactor_slider"] = 4
+            st.session_state["scalefactor_input"] = 4
+        if "sbf_slider" not in st.session_state:
+            st.session_state["sbf_slider"] = 2
+            st.session_state["sbf_input"] = 2
+
+        with col_slider:
+            hard1_val = st.slider("Number of Duties Per Day", 0, 4, key="hard1_slider", on_change=update_input, args=("hard1",), step=1)
+            hard4_val = st.slider("Gap Between Duties", 0, 10, key="hard4_slider", on_change=update_input, args=("hard4",), step=1)
+            hard5_val = st.slider("Maximum No. of Duties", 0, 5, key="hard5_slider", on_change=update_input, args=("hard5",), step=1)
+            hard1s_val = st.slider("Number of Standbys Per Day", 0, 4, key="hard1s_slider", on_change=update_input, args=("hard1s",), step=1)
+            hard2s_val = st.slider("Gap between S and/or D", 0, 10, key="hard2s_slider", on_change=update_input, args=("hard2s",), step=1)
+            scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", on_change=update_input, args=("scalefactor",), step=1)
+            sbf_val = st.slider("SB Bonus", 0, 5, key="sbf_slider", on_change=update_input, args=("sbf",), step=1)
+
+        with col_input:
+            hard1_manual = st.number_input("Label", 0, 4, key="hard1_input", on_change=update_slider, args=("hard1",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            hard4_manual = st.number_input("Label", 0, 10, key="hard4_input", on_change=update_slider, args=("hard4",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            hard5_manual = st.number_input("Label", 0, 5, key="hard5_input", on_change=update_slider, args=("hard5",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            hard1s_manual = st.number_input("Label", 0, 4, key="hard1s_input", on_change=update_slider, args=("hard1s",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            hard2s_manual = st.number_input("Label", 0, 10, key="hard2s_input", on_change=update_slider, args=("hard2s",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            scalefactor_manual = st.number_input("Label", 0, 5, key="scalefactor_input", on_change=update_slider, args=("scalefactor",), label_visibility="collapsed")
+            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            sbf_manual = st.number_input("Label", 0, 5, key="sbf_input", on_change=update_slider, args=("sbf",), label_visibility="collapsed")
+
+        model_constraints = {
+            "hard1": hard1_val,
+            "hard4": hard4_val,
+            "hard5": hard5_val,
+            "hard1s": hard1s_val,
+            "hard2s": hard2s_val,
+            "scalefactor": scalefactor_val,
+            "sbf_val": sbf_val
+        }
+
+        # main interface
+
+        mmyy = st.text_input("Month/Year (MMYY)", value="0126")
+        spreadsheet_name = f"Plan_Duty_{mmyy}"
+
+        try:
+            client = get_gspread_auth()
+            #st.success("✅ Connected to Google Account")
+        except Exception as e:
+            st.error(f"❌ Connection Error: {e}")
+            st.stop()
+
+        curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
+        m_new = curr_m + 1 
+        if m_new > 12:
+            m_new = 1
+            y_new = curr_y + 1
         else:
-            st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
-    except Exception as e:
-        st.error(f"❌ Drive check failed: {e}")
-    
-    col1, col2 = st.columns([2,3])
+            y_new = curr_y
+        m_old = curr_m - 1
+        if curr_m == 1:
+            m_old = 12
+            y_old = curr_y - 1
+        else:
+            y_old = curr_y
 
-    with col1:
-        st.write("If your file is an excel, convert it to a Google Sheet:")
+        next_file_display = f"{m_new:02d}{y_new:02d}"
 
-    with col2:
-        if st.button("🔄 Convert / Load Spreadsheet"):
-            try:
-                sh = convert_if_excel(client, spreadsheet_name)
-                st.session_state['sh'] = sh
-                st.success(f"✅ Loaded: {sh.title}")
-            except Exception:
-                st.error("🚨 Failed to load spreadsheet")
-                st.code(traceback.format_exc())
-    
-    col1, col2 = st.columns([2,3])
+        st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
 
-    with col1:
-        st.write("Step 1:")
-
-    with col2:
-        if st.button("🔥 Run Optimiser"):
-            try:
-
-                sh = convert_if_excel(client, spreadsheet_name)
-
-                with st.spinner("📥 Fetching Sheet Data..."):
-
-                    def get_df(sheet_name, header_row, use_cols = None):
-                        try:
-                            data = sh.worksheet(sheet_name).get_all_values()
-                            df = pd.DataFrame(data)
-                            df.columns = df.iloc[0]
-                            df = df[1:].reset_index(drop=True)
-                            if use_cols:
-                                df = df.iloc[:, :use_cols]
-                            return df.head(250)
-                        except Exception as e:
-                            raise ValueError(f"Error loading sheet '{sheet_name}': {e}")
-
-                    constraints_raw = get_df(f"{mmyy}C", header_row=1)
-                    constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
-                    holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
-                    partners_raw = get_df("Partners", header_row=0, use_cols=5)
-                    namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
-
-                    try:
-                        last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
-                    except:
-                        st.warning("Previous month data not found.")
-                        last_month_raw = None
-                
-
-                with st.spinner("🧠 Solving Optimisation..."):
-
-                    data_bundle = {
-                        "constraints": constraints_raw,
-                        "holidays": holidays_raw,
-                        "year": 2000 + int(mmyy[2:]),
-                        "year_old": 2000 + y_old,
-                        "month": int(mmyy[:2]),
-                        "month_old": m_old,
-                        "partners": partners_raw,
-                        "namelist": namelist_raw,
-                        "last_month": last_month_raw
-                    }
-
-                    planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
-
-                    if planned_df is not None:
-                        st.session_state['planned_df'] = planned_df
-                        st.session_state['n_scale'] = n_scale
-                        st.session_state['ranges'] = ranges
-                        st.session_state['active_sh_name'] = sh.title
-
-                        st.success("✅ Optimisation Successful!")
-                        state = "complete"
-                    else:
-                        st.warning("❌ No Solution Found")
-                        state = "error"
-
-            except Exception:
-                st.error("🚨 Critical Error Detected")
-                st.code(traceback.format_exc())
-
-
-    # planning buttons
-
-    final_name = st.session_state.get('active_sh_name', spreadsheet_name)
-
-    col1, col2 = st.columns([2,3])
-
-    with col1:
-        st.write("Step 2:")
-    
-    with col2:
-        if st.button("💾 Save to Google Sheets (Output D)"):
-            if 'planned_df' in st.session_state:
-                # 1. archive the original MMYYC using personal Drive account
-                with st.spinner("🧳 Creating Archive..."):
-                    personal_drive = get_personal_drive_service()
-                    folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-                    planner_engine.archive_source_sheet(client, final_name, mmyy, folder_id, personal_drive)
-                
-                # 2. write output
-                with st.spinner("✏️ Writing Output..."):
-                    out_name = planner_engine.create_backup_and_output(
-                        client, final_name, mmyy,
-                        st.session_state['planned_df'],
-                        st.session_state['n_scale'],
-                        st.session_state['ranges']
-                    )
-
-                # 3. create next month template
-                with st.spinner("⏭️ Preparing Next Month..."):
-                    _, next_file_name = planner_engine.generate_next_month_template(
-                        client, final_name, mmyy,
-                        st.session_state['planned_df'],
-                        st.session_state['ranges']
-                    )
-
-                    sh = client.open(final_name)
-                    sh.update_title(next_file_name)
-
-                    st.success(f"Done! File renamed to **{next_file_name}**")
-                    st.session_state.pop('planned_df', None)
+        try:
+            personal_drive = get_personal_drive_service()
+            folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+            gs_query = (
+                f"name = '{spreadsheet_name}' "
+                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+                f"and trashed = false "
+                f"and '{folder_id}' in parents"
+            )
+            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if files:
+                st.success(f"✅ Found: {spreadsheet_name}")
             else:
-                st.warning("Run the optimiser first!")
-
-    st.markdown("---")
-
-    # manual adjustments writing
-
-    st.markdown("### 🔄 Manual Duty Adjustments")
-
-    target_sheet_name = f"{mmyy}D"
-
-    try:
-        personal_drive = get_personal_drive_service()
-        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-        gs_query = (
-            f"name = '{spreadsheet_name}' "
-            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-            f"and trashed = false "
-            f"and '{folder_id}' in parents"
-        )
-        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-        files = results.get('files', [])
-        if not files:
-            raise FileNotFoundError(f"Could not find '{spreadsheet_name}' in your Drive folder")
-        sh_admin = client.open_by_key(files[0]['id'])
-        names_for_adj = user_engine.get_namelist(client, spreadsheet_name)
-        adj_ws = sh_admin.worksheet(target_sheet_name)
+                st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+        except Exception as e:
+            st.error(f"❌ Drive check failed: {e}")
         
-        with st.container(border=True):
-            col_p1, col_p2, col_type = st.columns(3)
-            with col_p1:
-                person_minus = st.selectbox("Person giving up duty (MINUS)", options=[""] + names_for_adj)
-            with col_p2:
-                person_plus = st.selectbox("Person taking over duty (ADD)", options=[""] + names_for_adj)
-            with col_type:
-                day_type = st.selectbox("Day Type", options=["Weekday (WD)", "Friday (F)", "Weekend (WE)", "Holiday (H)"])
+        col1, col2 = st.columns([2,3])
 
-            if st.button("+ Record Adjustment", use_container_width=True):
-                if not person_minus or not person_plus:
-                    st.error("❌ Please select both individuals.")
-                elif person_minus == person_plus:
-                    st.error("❌ Cannot swap between the same person.")
+        with col1:
+            st.write("If your file is an excel, convert it to a Google Sheet:")
+
+        with col2:
+            if st.button("🔄 Convert / Load Spreadsheet"):
+                try:
+                    sh = convert_if_excel(client, spreadsheet_name)
+                    st.session_state['sh'] = sh
+                    st.success(f"✅ Loaded: {sh.title}")
+                except Exception:
+                    st.error("🚨 Failed to load spreadsheet")
+                    st.code(traceback.format_exc())
+        
+        col1, col2 = st.columns([2,3])
+
+        with col1:
+            st.write("Step 1:")
+
+        with col2:
+            if st.button("🔥 Run Optimiser"):
+                try:
+
+                    sh = convert_if_excel(client, spreadsheet_name)
+
+                    with st.spinner("📥 Fetching Sheet Data..."):
+
+                        def get_df(sheet_name, header_row, use_cols = None):
+                            try:
+                                data = sh.worksheet(sheet_name).get_all_values()
+                                df = pd.DataFrame(data)
+                                df.columns = df.iloc[0]
+                                df = df[1:].reset_index(drop=True)
+                                if use_cols:
+                                    df = df.iloc[:, :use_cols]
+                                return df.head(250)
+                            except Exception as e:
+                                raise ValueError(f"Error loading sheet '{sheet_name}': {e}")
+
+                        constraints_raw = get_df(f"{mmyy}C", header_row=1)
+                        constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
+                        holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
+                        partners_raw = get_df("Partners", header_row=0, use_cols=5)
+                        namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
+
+                        try:
+                            last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
+                        except:
+                            st.warning("Previous month data not found.")
+                            last_month_raw = None
+                    
+
+                    with st.spinner("🧠 Solving Optimisation..."):
+
+                        data_bundle = {
+                            "constraints": constraints_raw,
+                            "holidays": holidays_raw,
+                            "year": 2000 + int(mmyy[2:]),
+                            "year_old": 2000 + y_old,
+                            "month": int(mmyy[:2]),
+                            "month_old": m_old,
+                            "partners": partners_raw,
+                            "namelist": namelist_raw,
+                            "last_month": last_month_raw
+                        }
+
+                        planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
+
+                        if planned_df is not None:
+                            st.session_state['planned_df'] = planned_df
+                            st.session_state['n_scale'] = n_scale
+                            st.session_state['ranges'] = ranges
+                            st.session_state['active_sh_name'] = sh.title
+
+                            st.success("✅ Optimisation Successful!")
+                            state = "complete"
+                        else:
+                            st.warning("❌ No Solution Found")
+                            state = "error"
+
+                except Exception:
+                    st.error("🚨 Critical Error Detected")
+                    st.code(traceback.format_exc())
+
+        # planning buttons
+
+        final_name = st.session_state.get('active_sh_name', spreadsheet_name)
+
+        col1, col2 = st.columns([2,3])
+
+        with col1:
+            st.write("Step 2:")
+        
+        with col2:
+            if st.button("💾 Save to Google Sheets (Output D)"):
+                if 'planned_df' in st.session_state:
+                    # 1. archive the original MMYYC using personal Drive account
+                    with st.spinner("🧳 Creating Archive..."):
+                        personal_drive = get_personal_drive_service()
+                        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+                        planner_engine.archive_source_sheet(client, final_name, mmyy, folder_id, personal_drive)
+                    
+                    # 2. write output
+                    with st.spinner("✏️ Writing Output..."):
+                        out_name = planner_engine.create_backup_and_output(
+                            client, final_name, mmyy,
+                            st.session_state['planned_df'],
+                            st.session_state['n_scale'],
+                            st.session_state['ranges']
+                        )
+
+                    # 3. create next month template
+                    with st.spinner("⏭️ Preparing Next Month..."):
+                        _, next_file_name = planner_engine.generate_next_month_template(
+                            client, final_name, mmyy,
+                            st.session_state['planned_df'],
+                            st.session_state['ranges']
+                        )
+
+                        sh = client.open(final_name)
+                        sh.update_title(next_file_name)
+
+                        st.success(f"Done! File renamed to **{next_file_name}**")
+                        st.session_state.pop('planned_df', None)
                 else:
-                    type_map = {"Weekday (WD)": "WD", "Friday (F)": "F", "Weekend (WE)": "WE", "Holiday (H)": "H"}
-                    suffix = type_map[day_type]
-                    
-                    # find next row in column AW (49)
-                    col_aw_values = adj_ws.col_values(49)
-                    next_row = max(115, len(col_aw_values) + 1)
+                    st.warning("Run the optimiser first!")
 
-                    updates = [
-                        {'range': f'AW{next_row}:AX{next_row}', 'values': [[person_minus.upper(), f"MINUS 1X {suffix}"]]},
-                        {'range': f'AW{next_row+1}:AX{next_row+1}', 'values': [[person_plus.upper(), f"ADD 1X {suffix}"]]}
-                    ]
-                    
-                    adj_ws.batch_update(updates, value_input_option='USER_ENTERED')
-                    st.success(f"📝 Recorded")
-                    st.rerun()
+    if admin_page == "✏️ Editing":
 
-        # review and clear adjustments
+        mmyy = st.text_input("Month/Year (MMYY)", value="0126")
+        spreadsheet_name = f"Plan_Duty_{mmyy}"
 
-        st.write("**Current adjustments (AW:AX):**")
-        
-        raw_adj = adj_ws.get("AW37:AX100")
-        if raw_adj:
-            adj_df = pd.DataFrame(raw_adj, columns=["Name", "Adjustment"])
-            st.dataframe(adj_df, use_container_width=True, hide_index=True)
-            
-            if st.button("🗑️ Clear Adjustments (Names/Text Only)", type="secondary"):
-                adj_ws.batch_clear(["AW37:AX100"])
-                st.toast("🚮 Adjustment names and text cleared")
-                st.rerun()
+        try:
+            client = get_gspread_auth()
+            #st.success("✅ Connected to Google Account")
+        except Exception as e:
+            st.error(f"❌ Connection Error: {e}")
+            st.stop()
+
+        curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
+        m_new = curr_m + 1 
+        if m_new > 12:
+            m_new = 1
+            y_new = curr_y + 1
         else:
-            st.caption(f"No adjustments recorded in {target_sheet_name}")
+            y_new = curr_y
+        m_old = curr_m - 1
+        if curr_m == 1:
+            m_old = 12
+            y_old = curr_y - 1
+        else:
+            y_old = curr_y
 
-    except Exception as e:
-        st.warning(f"No adjustments found.")
+        next_file_display = f"{m_new:02d}{y_new:02d}"
+
+        st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
+
+        try:
+            personal_drive = get_personal_drive_service()
+            folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+            gs_query = (
+                f"name = '{spreadsheet_name}' "
+                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+                f"and trashed = false "
+                f"and '{folder_id}' in parents"
+            )
+            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if files:
+                st.success(f"✅ Found: {spreadsheet_name}")
+            else:
+                st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+        except Exception as e:
+            st.error(f"❌ Drive check failed: {e}")
+
+        # manual adjustments writing
+
+        st.markdown("### 🔄 Manual Duty Adjustments")
+
+        target_sheet_name = f"{mmyy}D"
+
+        try:
+            personal_drive = get_personal_drive_service()
+            folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+            gs_query = (
+                f"name = '{spreadsheet_name}' "
+                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+                f"and trashed = false "
+                f"and '{folder_id}' in parents"
+            )
+            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if not files:
+                raise FileNotFoundError(f"Could not find '{spreadsheet_name}' in your Drive folder")
+            sh_admin = client.open_by_key(files[0]['id'])
+            names_for_adj = user_engine.get_namelist(client, spreadsheet_name)
+            adj_ws = sh_admin.worksheet(target_sheet_name)
+            
+            with st.container(border=True):
+                col_p1, col_p2, col_type = st.columns(3)
+                with col_p1:
+                    person_minus = st.selectbox("Person giving up duty (MINUS)", options=[""] + names_for_adj)
+                with col_p2:
+                    person_plus = st.selectbox("Person taking over duty (ADD)", options=[""] + names_for_adj)
+                with col_type:
+                    day_type = st.selectbox("Day Type", options=["Weekday (WD)", "Friday (F)", "Weekend (WE)", "Holiday (H)"])
+
+                if st.button("+ Record Adjustment", use_container_width=True):
+                    if not person_minus or not person_plus:
+                        st.error("❌ Please select both individuals.")
+                    elif person_minus == person_plus:
+                        st.error("❌ Cannot swap between the same person.")
+                    else:
+                        type_map = {"Weekday (WD)": "WD", "Friday (F)": "F", "Weekend (WE)": "WE", "Holiday (H)": "H"}
+                        suffix = type_map[day_type]
+                        
+                        # find next row in column AW (49)
+                        col_aw_values = adj_ws.col_values(49)
+                        next_row = max(115, len(col_aw_values) + 1)
+
+                        updates = [
+                            {'range': f'AW{next_row}:AX{next_row}', 'values': [[person_minus.upper(), f"MINUS 1X {suffix}"]]},
+                            {'range': f'AW{next_row+1}:AX{next_row+1}', 'values': [[person_plus.upper(), f"ADD 1X {suffix}"]]}
+                        ]
+                        
+                        adj_ws.batch_update(updates, value_input_option='USER_ENTERED')
+                        st.success(f"📝 Recorded")
+                        st.rerun()
+
+            # review and clear adjustments
+
+            st.write("**Current adjustments (AW:AX):**")
+            
+            raw_adj = adj_ws.get("AW37:AX100")
+            if raw_adj:
+                adj_df = pd.DataFrame(raw_adj, columns=["Name", "Adjustment"])
+                st.dataframe(adj_df, use_container_width=True, hide_index=True)
+                
+                if st.button("🗑️ Clear Adjustments (Names/Text Only)", type="secondary"):
+                    adj_ws.batch_clear(["AW37:AX100"])
+                    st.toast("🚮 Adjustment names and text cleared")
+                    st.rerun()
+            else:
+                st.caption(f"No adjustments recorded in {target_sheet_name}")
+
+        except Exception as e:
+            st.warning(f"No adjustments found.")
 
 # --------------------------------------------------
 # USER INTERFACE
