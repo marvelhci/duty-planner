@@ -558,54 +558,117 @@ if role == 'Admin':
         if err:
             st.info(f"Roster not yet finalized or accessible: {err}")
         else:
-            # 1. Setup Days of Week Header
-            days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            header_cols = st.columns(7)
-            for i, day_name in enumerate(days_of_week):
-                header_cols[i].markdown(
-                    f"""<div style="background-color: black; color: white; 
-                    padding: 5px; border-radius: 5px; text-align: center; 
-                    font-weight: bold; margin-bottom: 10px;">
-                    {day_name}</div>""", 
-                    unsafe_allow_html=True
-                )
-
-            # 2. Date Math
+            # 1. Date Math & Setup
             first_day = date(curr_y, curr_m, 1)
-            start_padding = first_day.weekday() # 0=Mon
+            start_padding = (first_day.weekday()) % 7 
             num_days = calendar.monthrange(curr_y, curr_m)[1]
-            
-            # 3. Grid Rendering
-            current_col = start_padding
-            cal_cols = st.columns(7)
-            
-            # Padding for start of month
+            days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+            # 2. CSS with Ellipsis for long names
+            st.markdown("""
+                <style>
+                    /* 1. Import the specific Streamlit font from Google */
+                    @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+                    .cal-container {
+                        border: 1px solid #444;
+                        border-radius: 15px;
+                        overflow: hidden; 
+                        margin-top: 10px;
+                        /* 2. Apply font to the whole container */
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                    }
+                    
+                    .cal-table { 
+                        width: 100%; 
+                        border-collapse: collapse; 
+                        table-layout: fixed;
+                        background-color: transparent;
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                    }
+
+                    .cal-th { 
+                        background-color: #000000; 
+                        color: #ffffff; 
+                        padding: 12px; 
+                        text-align: center; 
+                        border-bottom: 1px solid #444;
+                        font-weight: 600 !important;
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                    }
+
+                    .cal-td { 
+                        vertical-align: top; 
+                        border: 0.5px solid rgba(128, 128, 128, 0.2); 
+                        height: 110px; 
+                        padding: 10px; 
+                    }
+
+                    .day-num { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-weight: 700 !important; 
+                        font-size: 1rem; 
+                        margin-bottom: 8px; 
+                        display: block;
+                        color: var(--text-color);
+                    }
+
+                    .duty-item, .standby-item { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-size: 11px; 
+                        line-height: 1.4; 
+                        margin-bottom: 2px; 
+                        font-weight: 500 !important;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        width: 100%;
+                    }
+                    
+                    .duty-item { color: #d32f2f; }
+                    .standby-item { color: #f57c00; }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # 3. Build Table Structure
+            html_table = '<div class="cal-container"><table class="cal-table"><thead><tr>'
+            for day_name in days_of_week:
+                html_table += f'<th class="cal-th">{day_name}</th>'
+            html_table += '</tr></thead><tbody><tr>'
+
+            # 4. Leading Padding
             for i in range(start_padding):
-                cal_cols[i].write("")
+                html_table += '<td class="cal-td"></td>'
 
-            # Loop through month days
+            current_col = start_padding
+
+            # 5. Build Days
             for day in range(1, num_days + 1):
-                with cal_cols[current_col]:
-                    with st.container(border=True):
-                        # Day Number
-                        st.markdown(f"**{day}**")
-                        
-                        day_info = roster_data.get(str(day), {"duty": [], "standby": []})
-                        
-                        # Render Duties (🚨)
-                        for d_name in day_info["duty"]:
-                            st.markdown(f"<div style='font-size:11px; color:#d32f2f; line-height:1.2;'>🚨 {d_name}</div>", unsafe_allow_html=True)
-                        
-                        # Render Standbys (⏳)
-                        for s_name in day_info["standby"]:
-                            st.markdown(f"<div style='font-size:11px; color:#f57c00; line-height:1.2;'>⏳ {s_name}</div>", unsafe_allow_html=True)
-
-                # Handle column wrapping
-                current_col += 1
-                if current_col > 6:
+                if current_col == 7:
+                    html_table += '</tr><tr>'
                     current_col = 0
-                    if day < num_days: # Only create new row if days remain
-                        cal_cols = st.columns(7)
+                
+                day_info = roster_data.get(str(day), {"duty": [], "standby": []})
+                
+                # Add title attribute to divs so users can hover to see the full name
+                cell_content = f'<span class="day-num">{day}</span>'
+                for d_name in day_info["duty"]:
+                    cell_content += f'<div class="duty-item" title="🚨 {d_name}">🚨 {d_name}</div>'
+                for s_name in day_info["standby"]:
+                    cell_content += f'<div class="standby-item" title="⏳ {s_name}">⏳ {s_name}</div>'
+                
+                html_table += f'<td class="cal-td">{cell_content}</td>'
+                current_col += 1
+
+            # 6. Trailing Padding
+            while current_col < 7:
+                html_table += '<td class="cal-td"></td>'
+                current_col += 1
+
+            html_table += '</tr></tbody></table></div>'
+
+            # 7. Render
+            st.markdown(html_table, unsafe_allow_html=True)
 
         # manual adjustments writing
 
