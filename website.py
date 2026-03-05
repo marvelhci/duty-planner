@@ -768,9 +768,8 @@ if role == 'Admin':
                         pass
 
             # step 1: day picker
-            view_y = 2000 + int(mmyy[2:])
             num_days_in_month = calendar.monthrange(curr_y, curr_m)[1]
-            day_options = [date(view_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
+            day_options = [date(curr_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
             day_labels = [d.strftime("%d %b %Y (%a)") for d in day_options]
 
             selected_label = st.sidebar.selectbox(
@@ -862,15 +861,25 @@ if role == 'Admin':
                             p1_new_offset = round((p1_offset / adj_scale) - day_points, 4)
                             p2_new_offset = round((p2_offset / adj_scale) + day_points, 4)
 
-                            # find next empty log row from AU115 (AU = col index 46 in 0-indexed)
-                            next_log_row = 115
-                            for li in range(114, len(raw_d_data)):
+                            # find row with "NAME 1" in col AU (index 46), then write below it
+                            header_row_idx = None
+                            for li, rrow in enumerate(raw_d_data):
+                                if len(rrow) > 46 and rrow[46].strip().upper() == "NAME 1":
+                                    header_row_idx = li
+                                    break
+
+                            if header_row_idx is None:
+                                raise ValueError("Could not find 'NAME 1' header in column AU")
+
+                            # find next empty row below the header
+                            next_log_row = header_row_idx + 2  # start one row below header (1-indexed)
+                            for li in range(header_row_idx + 1, len(raw_d_data)):
                                 row_au = raw_d_data[li][46] if len(raw_d_data[li]) > 46 else ""
                                 if not row_au.strip():
                                     next_log_row = li + 1  # convert to 1-indexed
                                     break
                             else:
-                                next_log_row = max(115, len(raw_d_data) + 1)
+                                next_log_row = len(raw_d_data) + 1
 
                             updates = [
                                 {'range': f'{day_col_letter}{p1_row}', 'values': [['']]},
