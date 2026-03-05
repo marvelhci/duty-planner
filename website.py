@@ -564,10 +564,9 @@ if role == 'Admin':
             num_days = calendar.monthrange(curr_y, curr_m)[1]
             days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-            # 2. CSS with Ellipsis for long names
+            # 2. Hybrid CSS: Pill for Duty, Plain for Standby
             st.markdown("""
                 <style>
-                    /* 1. Import the specific Streamlit font from Google */
                     @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
 
                     .cal-container {
@@ -575,7 +574,6 @@ if role == 'Admin':
                         border-radius: 15px;
                         overflow: hidden; 
                         margin-top: 10px;
-                        /* 2. Apply font to the whole container */
                         font-family: 'Source Sans Pro', sans-serif !important;
                     }
                     
@@ -583,8 +581,7 @@ if role == 'Admin':
                         width: 100%; 
                         border-collapse: collapse; 
                         table-layout: fixed;
-                        background-color: transparent;
-                        font-family: 'Source Sans Pro', sans-serif !important;
+                        background-color: #262730; /* Darker background to make white text/blue pills pop */
                     }
 
                     .cal-th { 
@@ -594,55 +591,69 @@ if role == 'Admin':
                         text-align: center; 
                         border-bottom: 1px solid #444;
                         font-weight: 600 !important;
-                        font-family: 'Source Sans Pro', sans-serif !important;
                     }
 
                     .cal-td { 
                         vertical-align: top; 
-                        border: 0.5px solid rgba(128, 128, 128, 0.2); 
-                        height: 110px; 
+                        border: 0.5px solid rgba(255, 255, 255, 0.1); 
+                        height: 125px; 
                         padding: 10px; 
                     }
 
                     .day-num { 
-                        font-family: 'Source Sans Pro', sans-serif !important;
                         font-weight: 700 !important; 
                         font-size: 1rem; 
-                        margin-bottom: 8px; 
+                        margin-bottom: 10px; 
                         display: block;
-                        color: var(--text-color);
+                        color: #ffffff;
                     }
 
-                    .duty-item, .standby-item { 
+                    /* 🚨 DUTY: The "Pill" Style */
+                    .duty-item { 
                         font-family: 'Source Sans Pro', sans-serif !important;
-                        font-size: 11px; 
-                        line-height: 1.4; 
-                        margin-bottom: 2px; 
-                        font-weight: 500 !important;
+                        font-size: 10px; 
+                        line-height: 1.2; 
+                        margin-bottom: 6px; 
+                        font-weight: 600 !important;
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                        width: 100%;
+                        display: block;
+                        padding: 4px 8px;
+                        border-radius: 6px;
+                        background-color: #007bff; 
+                        border: 1px solid #0056b3;
+                        color: white !important;
                     }
                     
-                    .duty-item { color: #d32f2f; }
-                    .standby-item { color: #f57c00; }
+                    /* ⏳ STANDBY: Plain White Text Style */
+                    .standby-item { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-size: 11px; 
+                        line-height: 1.4; 
+                        margin-bottom: 3px; 
+                        font-weight: 400 !important;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        display: block;
+                        color: white !important; /* Plain white text, no background */
+                        padding-left: 2px;
+                    }
                 </style>
             """, unsafe_allow_html=True)
 
-            # 3. Build Table Structure
+            # 3. Build Table
             html_table = '<div class="cal-container"><table class="cal-table"><thead><tr>'
             for day_name in days_of_week:
                 html_table += f'<th class="cal-th">{day_name}</th>'
             html_table += '</tr></thead><tbody><tr>'
 
-            # 4. Leading Padding
             for i in range(start_padding):
                 html_table += '<td class="cal-td"></td>'
 
             current_col = start_padding
 
-            # 5. Build Days
             for day in range(1, num_days + 1):
                 if current_col == 7:
                     html_table += '</tr><tr>'
@@ -650,24 +661,25 @@ if role == 'Admin':
                 
                 day_info = roster_data.get(str(day), {"duty": [], "standby": []})
                 
-                # Add title attribute to divs so users can hover to see the full name
                 cell_content = f'<span class="day-num">{day}</span>'
+                
+                # Duty names get the blue pill
                 for d_name in day_info["duty"]:
-                    cell_content += f'<div class="duty-item" title="🚨 {d_name}">🚨 {d_name}</div>'
+                    cell_content += f'<div class="duty-item" title="Duty: {d_name}">{d_name}</div>'
+                
+                # Standby names get plain white text
                 for s_name in day_info["standby"]:
-                    cell_content += f'<div class="standby-item" title="⏳ {s_name}">⏳ {s_name}</div>'
+                    cell_content += f'<div class="standby-item" title="Standby: {s_name}">{s_name}</div>'
                 
                 html_table += f'<td class="cal-td">{cell_content}</td>'
                 current_col += 1
 
-            # 6. Trailing Padding
             while current_col < 7:
                 html_table += '<td class="cal-td"></td>'
                 current_col += 1
 
             html_table += '</tr></tbody></table></div>'
 
-            # 7. Render
             st.markdown(html_table, unsafe_allow_html=True)
 
         # manual adjustments writing
