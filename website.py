@@ -387,26 +387,27 @@ if role == 'Admin':
 
                     with st.spinner("📥 Fetching Sheet Data..."):
 
-                        def get_df(sheet_name, header_row, use_cols = None):
+                        def get_df(sheet_name, header_row=0, use_cols=None):
                             try:
                                 data = sh.worksheet(sheet_name).get_all_values()
                                 df = pd.DataFrame(data)
-                                df.columns = df.iloc[0]
-                                df = df[1:].reset_index(drop=True)
+                                df.columns = df.iloc[header_row]
+                                df = df[header_row + 1:].reset_index(drop=True)
                                 if use_cols:
                                     df = df.iloc[:, :use_cols]
                                 return df.head(250)
                             except Exception as e:
                                 raise ValueError(f"Error loading sheet '{sheet_name}': {e}")
 
-                        constraints_raw = get_df(f"{mmyy}C", header_row=1)
-                        constraints_raw.iloc[:, 43] = pd.to_numeric(constraints_raw.iloc[:, 43], errors='coerce').fillna(0)
-                        holidays_raw = get_df("Holiday", header_row=0, use_cols=3)
-                        partners_raw = get_df("Partners", header_row=0, use_cols=5)
+                        # C sheet: header is row 3 (index 2), offset col is AQ (index 42)
+                        constraints_raw = get_df(f"{mmyy}C", header_row=2)
+                        constraints_raw.iloc[:, 42] = pd.to_numeric(constraints_raw.iloc[:, 42], errors='coerce').fillna(0)
+                        holidays_raw = get_df("Holiday", header_row=0)
+                        partners_raw = get_df("Partners", header_row=0, use_cols=3)
                         namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
 
                         try:
-                            last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
+                            last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=2)
                         except:
                             st.warning("⚠️ Previous month data not found.")
                             last_month_raw = None

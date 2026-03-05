@@ -51,19 +51,19 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         partner = "None"
         try:
             cell = p_ws.find(user_name, in_column=2)
-            partner = p_ws.cell(cell.row, 4).value or "None"
+            partner = p_ws.cell(cell.row, 3).value or "None"  # NAME 2 = col C
         except:
             try:
-                cell = p_ws.find(user_name, in_column=4)
-                partner = p_ws.cell(cell.row, 2).value or "None"
+                cell = p_ws.find(user_name, in_column=3)      # search col C
+                partner = p_ws.cell(cell.row, 2).value or "None"  # NAME 1 = col B
             except:
                 pass
 
         # get X and D markers
         user_cell = c_ws.find(user_name, in_column=2)
         row_values = c_ws.row_values(user_cell.row)
-        c_list = [str(i+1) for i, v in enumerate(row_values[5:36]) if v == 'X']
-        p_list = [str(i+1) for i, v in enumerate(row_values[5:36]) if v == 'D']
+        c_list = [str(i+1) for i, v in enumerate(row_values[4:35]) if v == 'X']
+        p_list = [str(i+1) for i, v in enumerate(row_values[4:35]) if v == 'D']
 
         return {
             "partner": partner,
@@ -97,7 +97,7 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
             is_primary = True
         except gspread.exceptions.CellNotFound:
             try:
-                cell = p_ws.find(user_name, in_column=4)
+                cell = p_ws.find(user_name, in_column=3)  # col C = NAME 2
                 is_primary = False
             except gspread.exceptions.CellNotFound:
                 logs.append(f"⚠️ {user_name} not found in Partners sheet.")
@@ -105,18 +105,11 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         if cell:
             row_idx = cell.row
             partner_name = partner if partner != "None" else ""
-            partner_driving_status = get_person_driving_status(p_ws, partner_name, nl_ws)
 
             if is_primary:
-                p_updates = [
-                    {'range': f'D{row_idx}', 'values': [[partner_name]]},
-                    {'range': f'E{row_idx}', 'values': [[partner_driving_status]]}
-                ]
+                p_updates = [{'range': f'C{row_idx}', 'values': [[partner_name]]}]  # NAME 2 = col C
             else:
-                p_updates = [
-                    {'range': f'B{row_idx}', 'values': [[partner_name]]},
-                    {'range': f'C{row_idx}', 'values': [[partner_driving_status]]}
-                ]
+                p_updates = [{'range': f'B{row_idx}', 'values': [[partner_name]]}]  # NAME 1 = col B
 
             p_ws.batch_update(p_updates, value_input_option='USER_ENTERED')
             logs.append(f"✅ Step 1b: Updated Partners sheet for {user_name} and partner {partner_name}")
@@ -125,11 +118,11 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         c_ws = sh.worksheet(f"{mmyy}C")
         user_cell = c_ws.find(user_name, in_column=2)
         u_row = user_cell.row
-        date_start_col = 6
-        date_end_col = 36
+        date_start_col = 5   # col E = 5 in 1-indexed gspread
+        date_end_col = 35    # col AI = 35 in 1-indexed gspread
         c_updates = []
 
-        c_updates.append({'range': f'AS{u_row}', 'values': [[status_string]]})
+        c_updates.append({'range': f'AR{u_row}', 'values': [[status_string]]})  # status = AR
 
         def get_col_let(n):
             if n <= 26:

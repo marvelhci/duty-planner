@@ -28,21 +28,21 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
     date_start_col, date_end_col = ranges['date_start_col'], ranges['date_end_col']
     offset_col_idx = ranges['constraints_col'] + 1
     
-    # clear the duty grid area
-    output_ws.batch_clear([f"F{row_start+2}:AJ{row_end+2}"])
+    # clear the duty grid area (col E to AI, data starts Excel row 4)
+    output_ws.batch_clear([f"E{row_start+4}:AI{row_end+4}"])
     
     updates = []
     for r_idx in range(row_start, row_end + 1):
-        gs_row = r_idx + 2
+        gs_row = r_idx + 4  # data starts at Excel row 4
         
         # write normalised points
         pts_val = planned_df.iat[r_idx, offset_col_idx]
         updates.append({'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 1), 
                         'values': [[round(pts_val, 2)]]})
         
-        # writ estimated duties
+        # write estimated duties (AS = offset_col_idx + 2)
         est_val = planned_df.loc[r_idx, "Est_Next_Month_Duties"]
-        updates.append({'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 3), 
+        updates.append({'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 2), 
                         'values': [[est_val]]})
 
         # write D and S assignments
@@ -138,7 +138,7 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
     })
 
     # hide unused columns
-    # day 1 is index 5 (F), day 31 is index 35 (AJ)
+    # col E = sheet index 4, col AI = sheet index 34
     body = {
         "requests": [
             {
@@ -146,8 +146,8 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
                     "range": {
                         "sheetId": next_ws.id,
                         "dimension": "COLUMNS",
-                        "startIndex": date_start_col, # column F
-                        "endIndex": date_start_col + 31 # up to AJ
+                        "startIndex": 4,   # col E (0-indexed)
+                        "endIndex": 35     # col AI inclusive (0-indexed)
                     },
                     "properties": {"hiddenByUser": False},
                     "fields": "hiddenByUser"
@@ -163,8 +163,8 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
                 "range": {
                     "sheetId": next_ws.id,
                     "dimension": "COLUMNS",
-                    "startIndex": date_start_col + num_days_next,
-                    "endIndex": date_start_col + 31
+                    "startIndex": 4 + num_days_next,   # first unused day col
+                    "endIndex": 35                      # through AI
                 },
                 "properties": {"hiddenByUser": True},
                 "fields": "hiddenByUser"
@@ -176,26 +176,34 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
     # reset grid values and carry points
     updates = []
     for r_idx in range(row_start, row_end + 1):
-        gs_row = r_idx + 2
+        gs_row = r_idx + 4  # data starts at Excel row 4
         
-        # carry points
+        # carry points (AQ = offset_col_idx + 1 in 1-indexed gspread)
         pts_val = planned_df.iat[r_idx, offset_col_idx]
         updates.append({
             'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 1), 
             'values': [[round(pts_val, 2)]]
         })
         
-        # reset grid data
-        grid_row = ["" for d in range(1, 32)]
-        start_a1 = gspread.utils.rowcol_to_a1(gs_row, date_start_col + 1)
-        end_a1 = gspread.utils.rowcol_to_a1(gs_row, date_start_col + 31)
+        # reset grid data (col E to AI = cols 5 to 35 in 1-indexed gspread)
+        grid_row = ["" for _ in range(31)]
+        start_a1 = gspread.utils.rowcol_to_a1(gs_row, 5)   # col E
+        end_a1 = gspread.utils.rowcol_to_a1(gs_row, 35)    # col AI
         updates.append({'range': f"{start_a1}:{end_a1}", 'values': [grid_row]})
     
-        # for status column
+        # reset status column (AR = col 44 in 1-indexed gspread)
+        updates.append({
+            'range': f"AR{gs_row}",
+            'values': [[""]]
+        })
+
+        # reset forecast column (AS = col 45 in 1-indexed gspread)
         updates.append({
             'range': f"AS{gs_row}",
             'values': [[""]]
         })
+    
+
         
     next_ws.batch_update(updates)
     return next_name, next_spreadsheet_name
@@ -245,13 +253,13 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
     # find first empty cell after header row (row 1 onwards)
     first_empty_row = None
-    for i in range(1, len(name_series)):
+    for i in range(0, len(name_series)):
         val = name_series.iloc[i]
         if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "nan":
             first_empty_row = i
             break
 
-    row_start = 2
+    row_start = 0
     row_end = first_empty_row - 1
 
     # determine column range (dates)
@@ -373,9 +381,9 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
         name_to_row[name] = r
 
     partner_pairs = []
-    for i in range(1, len(partners_df)):
-        p1_name = str(partners_df.iloc[i, 1]).strip().upper()
-        p2_name = str(partners_df.iloc[i, 3]).strip().upper()
+    for i in range(0, len(partners_df)):
+        p1_name = str(partners_df.iloc[i, 1]).strip().upper()  # NAME 1 = col B = index 1
+        p2_name = str(partners_df.iloc[i, 2]).strip().upper()  # NAME 2 = col C = index 2
 
         if p1_name in name_to_row and p2_name in name_to_row:
             partner_pairs.append((name_to_row[p1_name], name_to_row[p2_name]))
