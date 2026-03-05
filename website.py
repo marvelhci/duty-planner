@@ -172,6 +172,12 @@ if role == 'Admin':
         options=["🗓 Planning", "✏️ Editing"],
     )
 
+    try:
+        client = get_gspread_auth()
+    except Exception as e:
+        st.error(f"❌ Connection Error: {e}")
+        st.stop()
+
     # --------------------------------------------------
     # PLANNING PAGE
     # --------------------------------------------------
@@ -329,15 +335,8 @@ if role == 'Admin':
 
         # main interface
 
-        mmyy = st.text_input("Month/Year (MMYY)", value="0126")
-        spreadsheet_name = f"Plan_Duty_{mmyy}"
-
-        try:
-            client = get_gspread_auth()
-            #st.success("✅ Connected to Google Account")
-        except Exception as e:
-            st.error(f"❌ Connection Error: {e}")
-            st.stop()
+        mmyy = st.text_input("Month/Year (MMYY) to plan", value="0126")
+        spreadsheet_name = f"MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
         m_new = curr_m + 1 
@@ -355,7 +354,7 @@ if role == 'Admin':
 
         next_file_display = f"{m_new:02d}{y_new:02d}"
 
-        st.info(f"Targeting Workbook: **{spreadsheet_name}**, Sheet: **{mmyy}C** | New Workbook: **{next_file_display}**")
+        st.info(f"Planning **{mmyy}**!")
 
         try:
             personal_drive = get_personal_drive_service()
@@ -369,26 +368,11 @@ if role == 'Admin':
             results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
             files = results.get('files', [])
             if files:
-                st.success(f"✅ Found: {spreadsheet_name}")
+                st.success(f"✅ Connected to storage!")
             else:
-                st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+                st.warning(f"⚠️ Connection error: storage failed!")
         except Exception as e:
-            st.error(f"❌ Drive check failed: {e}")
-        
-        col1, col2 = st.columns([2,3])
-
-        with col1:
-            st.write("If your file is an excel, convert it to a Google Sheet:")
-
-        with col2:
-            if st.button("🔄 Convert / Load Spreadsheet"):
-                try:
-                    sh = convert_if_excel(client, spreadsheet_name)
-                    st.session_state['sh'] = sh
-                    st.success(f"✅ Loaded: {sh.title}")
-                except Exception:
-                    st.error("🚨 Failed to load spreadsheet")
-                    st.code(traceback.format_exc())
+            st.error(f"❌ Storage failed: {e}")
         
         col1, col2 = st.columns([2,3])
 
@@ -424,7 +408,7 @@ if role == 'Admin':
                         try:
                             last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=1)
                         except:
-                            st.warning("Previous month data not found.")
+                            st.warning("⚠️ Previous month data not found.")
                             last_month_raw = None
                     
 
@@ -453,11 +437,11 @@ if role == 'Admin':
                             st.success("✅ Optimisation Successful!")
                             state = "complete"
                         else:
-                            st.warning("❌ No Solution Found")
+                            st.warning("⚠️ No Solution Found")
                             state = "error"
 
                 except Exception:
-                    st.error("🚨 Critical Error Detected")
+                    st.error("❌ Critical Error Detected")
                     st.code(traceback.format_exc())
 
         # planning buttons
@@ -470,7 +454,7 @@ if role == 'Admin':
             st.write("Step 2:")
         
         with col2:
-            if st.button("💾 Save to Google Sheets (Output D)"):
+            if st.button("💾 Save the Optimisation"):
                 if 'planned_df' in st.session_state:
                     # 1. archive the original MMYYC using personal Drive account
                     with st.spinner("🧳 Creating Archive..."):
@@ -495,25 +479,15 @@ if role == 'Admin':
                             st.session_state['ranges']
                         )
 
-                        sh = client.open(final_name)
-                        sh.update_title(next_file_name)
-
-                        st.success(f"Done! File renamed to **{next_file_name}**")
+                        st.success(f"✅ Done!")
                         st.session_state.pop('planned_df', None)
                 else:
-                    st.warning("Run the optimiser first!")
+                    st.warning("⚠️ Run the optimiser first!")
 
     if admin_page == "✏️ Editing":
 
-        mmyy = st.text_input("Month/Year (MMYY)", value="0126")
+        mmyy = st.text_input("Month/Year (MMYY) to edit", value="0126")
         spreadsheet_name = "MASTER SHEET"
-
-        try:
-            client = get_gspread_auth()
-            #st.success("✅ Connected to Google Account")
-        except Exception as e:
-            st.error(f"❌ Connection Error: {e}")
-            st.stop()
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
         m_new = curr_m + 1 
@@ -529,8 +503,6 @@ if role == 'Admin':
         else:
             y_old = curr_y
 
-        next_file_display = f"{m_new:02d}{y_new:02d}"
-
         st.info(f"Editing **{mmyy}**!")
 
         try:
@@ -545,19 +517,25 @@ if role == 'Admin':
             results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
             files = results.get('files', [])
             if files:
-                st.success(f"✅ Found: {spreadsheet_name}")
+                st.success(f"✅ Connected to storage!")
             else:
-                st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
+                st.warning(f"⚠️ Connection error: storage failed!")
         except Exception as e:
-            st.error(f"❌ Drive check failed: {e}")
+            st.error(f"❌ Storage failed: {e}")
 
-        roster_data, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+        roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
 
         sh = client.open(spreadsheet_name)
         
         if err:
-            st.info(f"Roster not yet finalized or accessible: {err}")
+            st.warning(f"⚠️ Roster not yet finalized or accessible: {err}")
         else:
+
+            if sheet_used == "D":
+                st.success("✅ Showing finalised roster")
+            elif sheet_used == "C":
+                st.info("ℹ️ Showing draft constraints — roster not yet finalised")
+
             # 1. Date Math & Setup
             first_day = date(curr_y, curr_m, 1)
             start_padding = (first_day.weekday()) % 7 
@@ -761,150 +739,334 @@ if role == 'Admin':
 
 if role == 'User':
     st.title("🚀 Duty Planner")
-    
-    # initialize session state for date history if not present
-    if 'hist_constraints' not in st.session_state:
-        st.session_state.hist_constraints = []
-    if 'hist_preferences' not in st.session_state:
-        st.session_state.hist_preferences = []
+
+    user_page = st.sidebar.segmented_control(
+        "",
+        options=["✏️ Planning", "🗓️ Viewer"],
+    )
 
     client = get_gspread_auth()
-    view_mmyy = st.text_input("Month (MMYY)", value="0126")
-    spreadsheet_name = f"Plan_Duty_{view_mmyy}"
 
-    try:
-        personal_drive = get_personal_drive_service()
-        folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-        gs_query = (
-            f"name = '{spreadsheet_name}' "
-            f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-            f"and trashed = false "
-            f"and '{folder_id}' in parents"
-        )
-        results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-        files = results.get('files', [])
-        if files:
-            st.success(f"✅ Found: {spreadsheet_name}")
-        else:
-            st.warning(f"⚠️ No spreadsheet found for {spreadsheet_name}")
-    except Exception as e:
-        st.error(f"❌ Drive check failed: {e}")
+    if user_page == "✏️ Planning":
     
-    names_list = user_engine.get_namelist(client, spreadsheet_name)
-    selected_name = st.selectbox("Step 1: Select Your Name to Load Data", options=[""] + names_list)
+        # initialize session state for date history if not present
+        if 'hist_constraints' not in st.session_state:
+            st.session_state.hist_constraints = []
+        if 'hist_preferences' not in st.session_state:
+            st.session_state.hist_preferences = []
 
-    defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
+        view_mmyy = st.text_input("Month (MMYY)", value="0126")
+        spreadsheet_name = "MASTER SHEET"
 
-    if selected_name:
-        if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
-            with st.spinner(f"📦 Retrieving current records for {selected_name}..."):
-                existing = user_engine.get_user_current_data(client, spreadsheet_name, view_mmyy, selected_name)
-                if existing:
-                    st.session_state.user_defaults = existing
-                    st.session_state.last_fetched_user = selected_name
-                    st.session_state.hist_constraints = set(user_engine.parse_string_to_days(existing.get('constraints', ""), view_mmyy))
-                    st.session_state.hist_preferences = set(user_engine.parse_string_to_days(existing.get('preferences', ""), view_mmyy))
-                    st.toast(f"Loaded data for {selected_name}")
-        
-        if "user_defaults" in st.session_state:
-            defaults = st.session_state.user_defaults
-
-    # date picker with calendar
-
-    st.subheader("Step 2: Pick Your Dates")
-    tab1, tab2 = st.tabs(["❌ Constraints (X)", "✅ Duty Days (D)"])
-
-    with tab1:
-    
-        c_input = st.date_input("Select Date or Range", value=[], key="c_picker")
-        c_col1, c_col2 = st.columns(2)
-        
-        if c_col1.button("➕ Add Constraint"):
-            if isinstance(c_input, (list, tuple)):
-                if len(c_input) == 2: # date range
-                    curr = c_input[0]
-                    while curr <= c_input[1]:
-                        st.session_state.hist_constraints.add(curr)
-                        curr += timedelta(days=1)
-                elif len(c_input) == 1: # single date
-                    st.session_state.hist_constraints.add(c_input[0])
-            st.rerun()
-
-        if c_col2.button("🗑️ Reset to Saved (X)"):
-            # resets it back to the original spreadsheet data
-            st.session_state.hist_constraints = set(user_engine.parse_string_to_days(defaults['constraints'], view_mmyy))
-            st.rerun()
-        
-        constraints_string = user_engine.format_date_list(st.session_state.hist_constraints)
-        st.caption(f"Current: {constraints_string if constraints_string else 'None'}")
-
-    with tab2:
-        p_input = st.date_input("Select Date or Range", value=[], key="p_picker")
-        p_col1, p_col2 = st.columns(2)
-        
-        if p_col1.button("➕ Add Preference"):
-            if isinstance(p_input, (list, tuple)):
-                if len(p_input) == 2:
-                    curr = p_input[0]
-                    while curr <= p_input[1]:
-                        st.session_state.hist_preferences.add(curr)
-                        curr += timedelta(days=1)
-                elif len(p_input) == 1:
-                    st.session_state.hist_preferences.add(p_input[0])
-            st.rerun()
-
-        if p_col2.button("🗑️ Reset to Saved (D)"):
-            st.session_state.hist_preferences = set(user_engine.parse_string_to_days(defaults['preferences'], view_mmyy))
-            st.rerun()
-            
-        preferences_string = user_engine.format_date_list(st.session_state.hist_preferences)
-        st.caption(f"Current: {preferences_string if preferences_string else 'None'}")
-
-    # form section
-
-    with st.form("user_submission_form"):
-        st.subheader("Step 3: Finalize Details")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            d_options = ["NON-DRIVER", "DRIVER", "RIDER"]
-            d_idx = d_options.index(defaults['driving']) if defaults['driving'] in d_options else 0
-            driving_status = st.selectbox("Your Driving Status", options=d_options, index=d_idx)
-            
-        with col2:
-            p_options = ["None"] + names_list
-            p_idx = p_options.index(defaults['partner']) if defaults['partner'] in p_options else 0
-            selected_partner = st.selectbox("Your Preferred Partner", options=p_options, index=p_idx)
-
-        with col3:
-            s_options = ["", "EXCUSED", "SBF", "NEW"]
-            s_idx = 0
-            selected_status = st.multiselect("Your Status (If Applicable)", options=s_options, default=s_options[s_idx])
-
-        with col4:
-            excused_reason = st.text_input("Reason (if EXCUSED)", placeholder="e.g. Medical appointment...")
-            if excused_reason and "EXCUSED" in selected_status:
-                status_string = ", ".join(selected_status) + f" ({excused_reason})"
+        try:
+            personal_drive = get_personal_drive_service()
+            folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+            gs_query = (
+                f"name = '{spreadsheet_name}' "
+                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+                f"and trashed = false "
+                f"and '{folder_id}' in parents"
+            )
+            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if files:
+                    st.success(f"✅ Connected to storage!")
             else:
-                status_string = ", ".join(selected_status)
-            
-        final_constraints = st.text_input("Constraints (X)", value=constraints_string)
-        final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
+                st.warning(f"⚠️ Connection error: storage failed!")
+        except Exception as e:
+            st.error(f"❌ Storage failed: {e}")
+        
+        names_list = user_engine.get_namelist(client, spreadsheet_name)
+        selected_name = st.selectbox("Step 1: Select Your Name to Load Data", options=[""] + names_list)
 
-        if st.form_submit_button("Save Changes"):
-            with st.spinner("💾 Writing to Google Sheets..."):
-                success, logs = user_engine.update_user_data(
-                    client, spreadsheet_name, view_mmyy, 
-                    selected_name, selected_partner, 
-                    driving_status, final_constraints, final_preferences, status_string
-                )
-                if success:
-                    st.success("Preferences updated successfully!")
-                    # clear session state on success
-                    st.session_state.hist_constraints = []
-                    st.session_state.hist_preferences = []
-                    if "user_defaults" in st.session_state: 
-                        del st.session_state.user_defaults
-                    st.rerun()
+        defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
+
+        if selected_name:
+            if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
+                with st.spinner(f"📦 Retrieving current records for {selected_name}..."):
+                    existing = user_engine.get_user_current_data(client, spreadsheet_name, view_mmyy, selected_name)
+                    if existing:
+                        st.session_state.user_defaults = existing
+                        st.session_state.last_fetched_user = selected_name
+                        st.session_state.hist_constraints = set(user_engine.parse_string_to_days(existing.get('constraints', ""), view_mmyy))
+                        st.session_state.hist_preferences = set(user_engine.parse_string_to_days(existing.get('preferences', ""), view_mmyy))
+                        st.toast(f"Loaded data for {selected_name}")
+            
+            if "user_defaults" in st.session_state:
+                defaults = st.session_state.user_defaults
+
+        # date picker with calendar
+
+        st.subheader("Step 2: Pick Your Dates")
+        tab1, tab2 = st.tabs(["❌ Constraints (X)", "✅ Duty Days (D)"])
+
+        with tab1:
+        
+            c_input = st.date_input("Select Date or Range", value=[], key="c_picker")
+            c_col1, c_col2 = st.columns(2)
+            
+            if c_col1.button("➕ Add Constraint"):
+                if isinstance(c_input, (list, tuple)):
+                    if len(c_input) == 2: # date range
+                        curr = c_input[0]
+                        while curr <= c_input[1]:
+                            st.session_state.hist_constraints.add(curr)
+                            curr += timedelta(days=1)
+                    elif len(c_input) == 1: # single date
+                        st.session_state.hist_constraints.add(c_input[0])
+                st.rerun()
+
+            if c_col2.button("🗑️ Reset to Saved (X)"):
+                # resets it back to the original spreadsheet data
+                st.session_state.hist_constraints = set(user_engine.parse_string_to_days(defaults['constraints'], view_mmyy))
+                st.rerun()
+            
+            constraints_string = user_engine.format_date_list(st.session_state.hist_constraints)
+            st.caption(f"Current: {constraints_string if constraints_string else 'None'}")
+
+        with tab2:
+            p_input = st.date_input("Select Date or Range", value=[], key="p_picker")
+            p_col1, p_col2 = st.columns(2)
+            
+            if p_col1.button("➕ Add Preference"):
+                if isinstance(p_input, (list, tuple)):
+                    if len(p_input) == 2:
+                        curr = p_input[0]
+                        while curr <= p_input[1]:
+                            st.session_state.hist_preferences.add(curr)
+                            curr += timedelta(days=1)
+                    elif len(p_input) == 1:
+                        st.session_state.hist_preferences.add(p_input[0])
+                st.rerun()
+
+            if p_col2.button("🗑️ Reset to Saved (D)"):
+                st.session_state.hist_preferences = set(user_engine.parse_string_to_days(defaults['preferences'], view_mmyy))
+                st.rerun()
+                
+            preferences_string = user_engine.format_date_list(st.session_state.hist_preferences)
+            st.caption(f"Current: {preferences_string if preferences_string else 'None'}")
+
+        # form section
+
+        with st.form("user_submission_form"):
+            st.subheader("Step 3: Finalize Details")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                d_options = ["NON-DRIVER", "DRIVER", "RIDER"]
+                d_idx = d_options.index(defaults['driving']) if defaults['driving'] in d_options else 0
+                driving_status = st.selectbox("Your Driving Status", options=d_options, index=d_idx)
+                
+            with col2:
+                p_options = ["None"] + names_list
+                p_idx = p_options.index(defaults['partner']) if defaults['partner'] in p_options else 0
+                selected_partner = st.selectbox("Your Preferred Partner", options=p_options, index=p_idx)
+
+            with col3:
+                s_options = ["", "EXCUSED", "SBF", "NEW"]
+                s_idx = 0
+                selected_status = st.multiselect("Your Status (If Applicable)", options=s_options, default=s_options[s_idx])
+
+            with col4:
+                excused_reason = st.text_input("Reason (if EXCUSED)", placeholder="e.g. Medical appointment...")
+                if excused_reason and "EXCUSED" in selected_status:
+                    status_string = ", ".join(selected_status) + f" ({excused_reason})"
                 else:
-                    st.error(f"❌ Failed to update: {logs[0]}")
+                    status_string = ", ".join(selected_status)
+                
+            final_constraints = st.text_input("Constraints (X)", value=constraints_string)
+            final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
+
+            if st.form_submit_button("Save Changes"):
+                with st.spinner("💾 Writing to Google Sheets..."):
+                    success, logs = user_engine.update_user_data(
+                        client, spreadsheet_name, view_mmyy, 
+                        selected_name, selected_partner, 
+                        driving_status, final_constraints, final_preferences, status_string
+                    )
+                    if success:
+                        st.success("Preferences updated successfully!")
+                        # clear session state on success
+                        st.session_state.hist_constraints = []
+                        st.session_state.hist_preferences = []
+                        if "user_defaults" in st.session_state: 
+                            del st.session_state.user_defaults
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed to update: {logs[0]}")
+
+    if user_page == "🗓️ Viewer":
+
+        mmyy = st.text_input("Month/Year (MMYY) to edit", value="0126")
+        spreadsheet_name = "MASTER SHEET"
+
+        curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
+        m_new = curr_m + 1 
+        if m_new > 12:
+            m_new = 1
+            y_new = curr_y + 1
+        else:
+            y_new = curr_y
+        m_old = curr_m - 1
+        if curr_m == 1:
+            m_old = 12
+            y_old = curr_y - 1
+        else:
+            y_old = curr_y
+
+        st.info(f"Viewing **{mmyy}**!")
+
+        try:
+            personal_drive = get_personal_drive_service()
+            folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
+            gs_query = (
+                f"name = '{spreadsheet_name}' "
+                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+                f"and trashed = false "
+                f"and '{folder_id}' in parents"
+            )
+            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if files:
+                st.success(f"✅ Connected to storage!")
+            else:
+                st.warning(f"⚠️ Connection error: storage failed!")
+        except Exception as e:
+            st.error(f"❌ Storage failed: {e}")
+
+        roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+
+        sh = client.open(spreadsheet_name)
+        
+        if err:
+            st.warning(f"⚠️ Roster not yet finalized or accessible: {err}")
+        else:
+
+            if sheet_used == "D":
+                st.success("✅ Showing finalised roster")
+            elif sheet_used == "C":
+                st.info("ℹ️ Showing draft constraints — roster not yet finalised")
+
+            # 1. Date Math & Setup
+            first_day = date(curr_y, curr_m, 1)
+            start_padding = (first_day.weekday()) % 7 
+            num_days = calendar.monthrange(curr_y, curr_m)[1]
+            days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+            # 2. Hybrid CSS: Pill for Duty, Plain for Standby
+            st.markdown("""
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+                    .cal-container {
+                        border: 1px solid #444;
+                        border-radius: 15px;
+                        overflow: hidden; 
+                        margin-top: 10px;
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                    }
+                    
+                    .cal-table { 
+                        width: 100%; 
+                        border-collapse: collapse; 
+                        table-layout: fixed;
+                        background-color: #262730; /* Darker background to make white text/blue pills pop */
+                    }
+
+                    .cal-th { 
+                        background-color: #000000; 
+                        color: #ffffff; 
+                        padding: 12px; 
+                        text-align: center; 
+                        border-bottom: 1px solid #444;
+                        font-weight: 600 !important;
+                    }
+
+                    .cal-td { 
+                        vertical-align: top; 
+                        border: 0.5px solid rgba(255, 255, 255, 0.1); 
+                        height: 125px; 
+                        padding: 10px; 
+                    }
+
+                    .day-num { 
+                        font-weight: 700 !important; 
+                        font-size: 1rem; 
+                        margin-bottom: 10px; 
+                        display: block;
+                        color: #ffffff;
+                    }
+
+                    /* 🚨 DUTY: The "Pill" Style */
+                    .duty-item { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-size: 10px; 
+                        line-height: 1.2; 
+                        margin-bottom: 6px; 
+                        font-weight: 600 !important;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        display: block;
+                        padding: 4px 8px;
+                        border-radius: 6px;
+                        background-color: #007bff; 
+                        border: 1px solid #0056b3;
+                        color: white !important;
+                    }
+                    
+                    /* ⏳ STANDBY: Plain White Text Style */
+                    .standby-item { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-size: 11px; 
+                        line-height: 1.4; 
+                        margin-bottom: 3px; 
+                        font-weight: 400 !important;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        display: block;
+                        color: white !important; /* Plain white text, no background */
+                        padding-left: 2px;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # 3. Build Table
+            html_table = '<div class="cal-container"><table class="cal-table"><thead><tr>'
+            for day_name in days_of_week:
+                html_table += f'<th class="cal-th">{day_name}</th>'
+            html_table += '</tr></thead><tbody><tr>'
+
+            for i in range(start_padding):
+                html_table += '<td class="cal-td"></td>'
+
+            current_col = start_padding
+
+            for day in range(1, num_days + 1):
+                if current_col == 7:
+                    html_table += '</tr><tr>'
+                    current_col = 0
+                
+                day_info = roster_data.get(str(day), {"duty": [], "standby": []})
+                
+                cell_content = f'<span class="day-num">{day}</span>'
+                
+                # Duty names get the blue pill
+                for d_name in day_info["duty"]:
+                    cell_content += f'<div class="duty-item" title="Duty: {d_name}">{d_name}</div>'
+                
+                # Standby names get plain white text
+                for s_name in day_info["standby"]:
+                    cell_content += f'<div class="standby-item" title="Standby: {s_name}">{s_name}</div>'
+                
+                html_table += f'<td class="cal-td">{cell_content}</td>'
+                current_col += 1
+
+            while current_col < 7:
+                html_table += '<td class="cal-td"></td>'
+                current_col += 1
+
+            html_table += '</tr></tbody></table></div>'
+
+            st.markdown(html_table, unsafe_allow_html=True)

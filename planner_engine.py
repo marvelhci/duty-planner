@@ -61,7 +61,26 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
 def archive_source_sheet(client, spreadsheet_name, mmyy, folder_id, personal_drive, *args, **kwargs):
     sh = client.open(spreadsheet_name)
     archive_filename = f"[ARCHIVE] {spreadsheet_name}"
+    temp_filename = f"[ARCHIVE] {spreadsheet_name} 1"
 
+    # step 1: find existing archive and rename it to temp name
+    existing_query = (
+        f"name = '{archive_filename}' "
+        f"and trashed = false "
+        f"and '{folder_id}' in parents"
+    )
+    existing_results = personal_drive.files().list(q=existing_query, fields="files(id)").execute()
+    existing_files = existing_results.get('files', [])
+
+    old_archive_id = None
+    if existing_files:
+        old_archive_id = existing_files[0]['id']
+        personal_drive.files().update(
+            fileId=old_archive_id,
+            body={'name': temp_filename}
+        ).execute()
+
+    # step 2: create the new archive as usual
     personal_drive.files().copy(
         fileId=sh.id,
         body={
@@ -69,6 +88,13 @@ def archive_source_sheet(client, spreadsheet_name, mmyy, folder_id, personal_dri
             'parents': [folder_id]
         }
     ).execute()
+
+    # step 3: delete the old archive (now renamed to temp)
+    if old_archive_id:
+        personal_drive.files().delete(fileId=old_archive_id).execute()
+
+    # step 4: empty the trash
+    personal_drive.files().emptyTrash().execute()
 
     return archive_filename
 
@@ -230,7 +256,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
     # determine column range (dates)
 
-    date_start_col = 5
+    date_start_col = 4
 
     num_days = calendar.monthrange(year, month)[1]
 
@@ -238,7 +264,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
     # determine column range (constraints)
 
-    constraints_col = 42 # column AQ
+    constraints_col = 41 # column AQ
     OFFSET_COL = constraints_col + 1
 
     # --------------------------------------------------

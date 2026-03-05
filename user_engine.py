@@ -189,25 +189,46 @@ def format_date_list(history_collection):
 
 def calendar_view(client, spreadsheet_name, mmyy):
     """
-    Parses the horizontal planning sheet (Col E-AI) into a dictionary 
-    indexed by day number for calendar rendering.
+    Parses the horizontal planned sheet into a dictionary.
+    Prioritizes 'MMYYD' sheet, falls back to 'MMYYC', else returns error.
     """
     try:
         sh = client.open(spreadsheet_name)
-        worksheet = sh.worksheet(f"{mmyy}D")
+        
+        # 1. Get all available sheet titles to check for existence
+        all_sheet_titles = [s.title for s in sh.worksheets()]
+        
+        # 2. Define our targets
+        primary_sheet = f"{mmyy}D"
+        backup_sheet = f"{mmyy}C"
+        
+        # 3. If-Else Logic for sheet selection
+        if primary_sheet in all_sheet_titles:
+            worksheet = sh.worksheet(primary_sheet)
+            sheet_used = "D"
+        elif backup_sheet in all_sheet_titles:
+            worksheet = sh.worksheet(backup_sheet)
+            sheet_used = "C"
+        else:
+            return None, None, f"No data for this {mmyy} was found."
+
+        # 4. Pull data once the correct sheet is selected
         raw_data = worksheet.get_all_values()
 
+        # Data starts from index 3 (Row 4)
         rows = raw_data[3:]
         
         # Initialize dictionary for 31 days
         roster = {str(day): {"duty": [], "standby": []} for day in range(1, 32)}
 
         for row in rows:
+            # Safety check: skip empty rows or rows without names
             if not row or len(row) < 2 or not row[1].strip(): 
-                break
+                continue # Use continue instead of break to handle gaps in the spreadsheet
 
             name = row[1].strip()
 
+            # Iterate through 31 columns (Starting from Column E / Index 4)
             for i in range(31):
                 col_idx = 4 + i
                 if col_idx >= len(row):
@@ -222,6 +243,7 @@ def calendar_view(client, spreadsheet_name, mmyy):
                     elif planned_status == 'S':
                         roster[day_num]["standby"].append(name)
         
-        return roster, None
+        return roster, sheet_used, None
+        
     except Exception as e:
         return None, str(e)
