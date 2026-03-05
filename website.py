@@ -58,6 +58,34 @@ def get_personal_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 # --------------------------------------------------
+# CACHED DATA FETCHERS
+# --------------------------------------------------
+
+@st.cache_data(ttl=300)
+def fetch_sheet_data(_client, spreadsheet_name, sheet_name):
+    """Cached sheet reader — TTL 5 mins."""
+    sh = _client.open(spreadsheet_name)
+    return sh.worksheet(sheet_name).get_all_values()
+
+@st.cache_data(ttl=300)
+def fetch_namelist(_client, spreadsheet_name):
+    """Cached namelist fetch."""
+    return user_engine.get_namelist(_client, spreadsheet_name)
+
+@st.cache_data(ttl=600)
+def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
+    """Cached Drive file ID lookup — TTL 10 mins."""
+    gs_query = (
+        f"name = '{spreadsheet_name}' "
+        f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
+        f"and trashed = false "
+        f"and '{folder_id}' in parents"
+    )
+    results = _personal_drive.files().list(q=gs_query, fields="files(id)").execute()
+    files = results.get('files', [])
+    return files[0]['id'] if files else None
+
+# --------------------------------------------------
 # CONVERT FILES FROM .XLSX TO SHEETS
 # --------------------------------------------------
 
@@ -359,15 +387,8 @@ if role == 'Admin':
         try:
             personal_drive = get_personal_drive_service()
             folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-            gs_query = (
-                f"name = '{spreadsheet_name}' "
-                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-                f"and trashed = false "
-                f"and '{folder_id}' in parents"
-            )
-            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-            files = results.get('files', [])
-            if files:
+            sheet_id = fetch_spreadsheet_id(personal_drive, folder_id, spreadsheet_name)
+            if sheet_id:
                 st.success(f"✅ Connected to storage!")
             else:
                 st.warning(f"⚠️ Connection error: storage failed!")
@@ -530,22 +551,22 @@ if role == 'Admin':
         try:
             personal_drive = get_personal_drive_service()
             folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-            gs_query = (
-                f"name = '{spreadsheet_name}' "
-                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-                f"and trashed = false "
-                f"and '{folder_id}' in parents"
-            )
-            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-            files = results.get('files', [])
-            if files:
+            sheet_id = fetch_spreadsheet_id(personal_drive, folder_id, spreadsheet_name)
+            if sheet_id:
                 st.success(f"✅ Connected to storage!")
             else:
                 st.warning(f"⚠️ Connection error: storage failed!")
         except Exception as e:
             st.error(f"❌ Storage failed: {e}")
 
-        roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+        roster_cache_key = f"roster_{mmyy}"
+        if roster_cache_key not in st.session_state:
+            roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+            if not err:
+                st.session_state[roster_cache_key] = {"roster_data": roster_data, "sheet_used": sheet_used, "err": err}
+        else:
+            cached_r = st.session_state[roster_cache_key]
+            roster_data, sheet_used, err = cached_r["roster_data"], cached_r["sheet_used"], cached_r["err"]
 
         sh = client.open(spreadsheet_name)
         
@@ -686,82 +707,70 @@ if role == 'Admin':
         # SIDEBAR: MANUAL DUTY SWAP
         # --------------------------------------------------
         st.sidebar.title("📅 Editing Settings")
-
         st.sidebar.subheader("🔄 Manual Duty Swap")
 
         target_sheet_name = f"{mmyy}D"
+        cache_key = f"adj_data_{mmyy}"
 
         try:
             personal_drive = get_personal_drive_service()
             folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-            gs_query = (
-                f"name = '{spreadsheet_name}' "
-                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-                f"and trashed = false "
-                f"and '{folder_id}' in parents"
-            )
-            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-            files = results.get('files', [])
-            if not files:
-                raise FileNotFoundError(f"Could not find '{spreadsheet_name}'")
-            sh_admin = client.open_by_key(files[0]['id'])
-            adj_ws = sh_admin.worksheet(target_sheet_name)
 
-            cache_key = f"adj_data_{mmyy}"
+            # cached Drive file ID lookup
+            sheet_id = fetch_spreadsheet_id(personal_drive, folder_id, spreadsheet_name)
+            if not sheet_id:
+                raise FileNotFoundError(f"Could not find '{spreadsheet_name}'")
+            sh_admin = client.open_by_key(sheet_id)
+
+            # load D sheet and holiday data once, cache in session state
             if cache_key not in st.session_state:
                 with st.spinner("📥 Loading sheet data..."):
-                    adj_ws = sh_admin.worksheet(target_sheet_name)
-                    raw_d_data = adj_ws.get_all_values()
-                    scale_raw = adj_ws.acell('AU3').value
-                    hol_ws = sh_admin.worksheet("Holiday")
-                    hol_data = hol_ws.get_all_values()
-                    
+                    raw_d_data = fetch_sheet_data(client, spreadsheet_name, target_sheet_name)
+                    hol_data = fetch_sheet_data(client, spreadsheet_name, "Holiday")
+                    # AU3 = row index 2, col index 46
+                    scale_raw = raw_d_data[2][46] if len(raw_d_data) > 2 and len(raw_d_data[2]) > 46 else None
                     st.session_state[cache_key] = {
                         "raw_d_data": raw_d_data,
                         "scale_raw": scale_raw,
                         "hol_data": hol_data
                     }
 
+            if st.sidebar.button("🔄 Refresh Data", key="refresh_adj"):
+                st.session_state.pop(cache_key, None)
+                fetch_sheet_data.clear()
+                st.rerun()
+
             cached = st.session_state[cache_key]
             raw_d_data = cached["raw_d_data"]
             scale_raw = cached["scale_raw"]
             hol_data = cached["hol_data"]
-            adj_ws = sh_admin.worksheet(target_sheet_name)
-
-            # read all sheet data once for filtering
-            all_names = user_engine.get_namelist(client, spreadsheet_name)
-            raw_d_data = adj_ws.get_all_values()
             d_rows = raw_d_data[3:]  # data from row 4
 
-            # read scale from AU3 on D sheet (col 47 = AU, row 3)
+            # keep ws reference only for writes
+            adj_ws = sh_admin.worksheet(target_sheet_name)
+
+            # parse scale
             try:
-                scale_raw = adj_ws.acell('AU3').value
                 adj_scale = float(scale_raw) if scale_raw and float(scale_raw) > 0 else 1.0
             except:
                 adj_scale = 1.0
 
-            # read holiday dates for day type detection
-            try:
-                hol_ws = sh_admin.worksheet("Holiday")
-                hol_data = hol_ws.get_all_values()
-                holiday_dates = set()
-                for hrow in hol_data[1:]:
-                    if len(hrow) > 1 and hrow[1].strip():
-                        try:
-                            from datetime import datetime as dt
-                            hdate = dt.strptime(hrow[1].strip(), "%Y-%m-%d").date() if "-" in hrow[1] else None
-                            if hdate:
-                                holiday_dates.add(hdate)
-                        except:
-                            pass
-            except:
-                holiday_dates = set()
-
-            curr_m, curr_y = int(mmyy[:2]), 2000 + int(mmyy[2:])
+            # parse holiday dates from cached data
+            holiday_dates = set()
+            from datetime import datetime as dt
+            for hrow in hol_data[1:]:
+                if len(hrow) > 1 and hrow[1].strip():
+                    try:
+                        hdate = dt.strptime(hrow[1].strip(), "%Y-%m-%d").date() if "-" in hrow[1] else None
+                        if hdate:
+                            holiday_dates.add(hdate)
+                    except:
+                        pass
 
             # step 1: day picker
+            view_y = 2000 + int(mmyy[2:])
             num_days_in_month = calendar.monthrange(curr_y, curr_m)[1]
-            day_options = [date(curr_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
+            day_options = [date(view_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
             day_labels = [d.strftime("%d %b %Y (%a)") for d in day_options]
 
             selected_label = st.sidebar.selectbox(
@@ -772,32 +781,26 @@ if role == 'Admin':
 
             swap_date = day_options[day_labels.index(selected_label)]
             selected_day = swap_date.day
-
-            selected_day = swap_date.day  # 1-indexed day number
-            date_col_idx = 4 + selected_day - 1  # 0-indexed pandas col (col E = index 4)
+            date_col_idx = 4 + selected_day - 1  # 0-indexed (col E = index 4)
 
             # determine day type automatically
-            weekday_num = swap_date.weekday()  # 0=Mon, 6=Sun
+            weekday_num = swap_date.weekday()
             if swap_date in holiday_dates:
-                day_type_code = "H"
-                day_type_label = "Holiday"
+                day_type_code, day_type_label = "H", "Holiday"
                 day_points = point_allocations["holiday_points"]
             elif weekday_num == 4:
-                day_type_code = "F"
-                day_type_label = "Friday"
+                day_type_code, day_type_label = "F", "Friday"
                 day_points = point_allocations["friday_points"]
             elif weekday_num >= 5:
-                day_type_code = "WE"
-                day_type_label = "Weekend"
+                day_type_code, day_type_label = "WE", "Weekend"
                 day_points = point_allocations["weekend_points"]
             else:
-                day_type_code = "WD"
-                day_type_label = "Weekday"
+                day_type_code, day_type_label = "WD", "Weekday"
                 day_points = point_allocations["weekday_points"]
 
             st.sidebar.caption(f"📅 Day type: **{day_type_label}** ({day_points} pts)")
 
-            # build name lists filtered by D assignments on selected day
+            # build filtered name lists from cached data
             names_with_d = []
             names_without_d = []
             for drow in d_rows:
@@ -833,7 +836,6 @@ if role == 'Admin':
                     st.sidebar.error("❌ Please select a person to take over.")
                 else:
                     try:
-                        # find rows for both people (gspread row = data row index + 4)
                         p1_row = next(
                             (i + 4 for i, r in enumerate(d_rows)
                              if r and len(r) > 1 and r[1].strip() == person_1), None
@@ -846,43 +848,45 @@ if role == 'Admin':
                         if not p1_row or not p2_row:
                             st.sidebar.error("❌ Could not locate one or both people in the sheet.")
                         else:
-                            # col letter for selected day (col E = col 5 in 1-indexed gspread)
+                            # col letter for selected day
                             day_gs_col = 5 + selected_day - 1
                             day_col_letter = gspread.utils.rowcol_to_a1(1, day_gs_col)[:-1]
 
-                            # read current offsets from AQ (col 43 in 1-indexed gspread)
-                            p1_offset_raw = adj_ws.cell(p1_row, 43).value
-                            p2_offset_raw = adj_ws.cell(p2_row, 43).value
+                            # read offsets from cached data (AQ = col index 42 in 0-indexed)
+                            p1_offset_raw = raw_d_data[p1_row - 1][42] if len(raw_d_data[p1_row - 1]) > 42 else None
+                            p2_offset_raw = raw_d_data[p2_row - 1][42] if len(raw_d_data[p2_row - 1]) > 42 else None
                             p1_offset = float(p1_offset_raw) if p1_offset_raw else 0.0
                             p2_offset = float(p2_offset_raw) if p2_offset_raw else 0.0
 
-                            # compute new offsets: un-normalise, adjust, leave as-is
+                            # compute new offsets
                             p1_new_offset = round((p1_offset / adj_scale) - day_points, 4)
                             p2_new_offset = round((p2_offset / adj_scale) + day_points, 4)
 
-                            # find next empty log row from AU115 down (col 47 = AU)
-                            log_col_vals = adj_ws.col_values(47)
+                            # find next empty log row from AU115 (AU = col index 46 in 0-indexed)
                             next_log_row = 115
-                            for li in range(114, len(log_col_vals)):
-                                if not log_col_vals[li].strip():
-                                    next_log_row = li + 1
+                            for li in range(114, len(raw_d_data)):
+                                row_au = raw_d_data[li][46] if len(raw_d_data[li]) > 46 else ""
+                                if not row_au.strip():
+                                    next_log_row = li + 1  # convert to 1-indexed
                                     break
                             else:
-                                next_log_row = max(115, len(log_col_vals) + 1)
+                                next_log_row = max(115, len(raw_d_data) + 1)
 
                             updates = [
-                                # swap D: clear person 1, write person 2
                                 {'range': f'{day_col_letter}{p1_row}', 'values': [['']]},
                                 {'range': f'{day_col_letter}{p2_row}', 'values': [['D']]},
-                                # update offsets in AQ
                                 {'range': f'AQ{p1_row}', 'values': [[p1_new_offset]]},
                                 {'range': f'AQ{p2_row}', 'values': [[p2_new_offset]]},
-                                # log entry: AU=name1, AV=name2, AW=day, AX=day type
                                 {'range': f'AU{next_log_row}:AX{next_log_row}',
                                  'values': [[person_1, person_2, selected_day, day_type_code]]}
                             ]
 
+                            adj_ws.batch_update(updates, value_input_option='USER_ENTERED')
+
+                            # clear caches so next load gets fresh data
                             st.session_state.pop(cache_key, None)
+                            st.session_state.pop(f"roster_{mmyy}", None)
+                            fetch_sheet_data.clear()
                             st.sidebar.success(f"✅ Swapped day {selected_day}: {person_1} → {person_2}")
                             st.rerun()
 
@@ -935,7 +939,7 @@ if role == 'User':
         except Exception as e:
             st.error(f"❌ Storage failed: {e}")
         
-        names_list = user_engine.get_namelist(client, spreadsheet_name)
+        names_list = fetch_namelist(client, spreadsheet_name)
         selected_name = st.selectbox("Step 1: Select Your Name to Load Data", options=[""] + names_list)
 
         defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
@@ -1078,22 +1082,22 @@ if role == 'User':
         try:
             personal_drive = get_personal_drive_service()
             folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
-            gs_query = (
-                f"name = '{spreadsheet_name}' "
-                f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
-                f"and trashed = false "
-                f"and '{folder_id}' in parents"
-            )
-            results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
-            files = results.get('files', [])
-            if files:
+            sheet_id = fetch_spreadsheet_id(personal_drive, folder_id, spreadsheet_name)
+            if sheet_id:
                 st.success(f"✅ Connected to storage!")
             else:
                 st.warning(f"⚠️ Connection error: storage failed!")
         except Exception as e:
             st.error(f"❌ Storage failed: {e}")
 
-        roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+        roster_cache_key = f"roster_user_{mmyy}"
+        if roster_cache_key not in st.session_state:
+            roster_data, sheet_used, err = user_engine.calendar_view(client, spreadsheet_name, mmyy)
+            if not err:
+                st.session_state[roster_cache_key] = {"roster_data": roster_data, "sheet_used": sheet_used, "err": err}
+        else:
+            cached_r = st.session_state[roster_cache_key]
+            roster_data, sheet_used, err = cached_r["roster_data"], cached_r["sheet_used"], cached_r["err"]
 
         sh = client.open(spreadsheet_name)
         
