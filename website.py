@@ -517,6 +517,14 @@ if role == 'Admin':
         else:
             y_old = curr_y
 
+        # point allocations — use planning page slider values if available, else defaults
+        point_allocations = {
+            "weekday_points": st.session_state.get("weekday_slider", 1.0),
+            "friday_points": st.session_state.get("friday_slider", 1.5),
+            "weekend_points": st.session_state.get("weekend_slider", 2.0),
+            "holiday_points": st.session_state.get("holiday_slider", 2.0),
+        }
+
         st.info(f"Editing **{mmyy}**!")
 
         try:
@@ -674,9 +682,12 @@ if role == 'Admin':
 
             st.markdown(html_table, unsafe_allow_html=True)
 
-        # manual adjustments writing
+        # --------------------------------------------------
+        # SIDEBAR: MANUAL DUTY SWAP
+        # --------------------------------------------------
+        st.sidebar.title("📅 Editing Settings")
 
-        st.markdown("### 🔄 Manual Duty Adjustments")
+        st.sidebar.subheader("🔄 Manual Duty Swap")
 
         target_sheet_name = f"{mmyy}D"
 
@@ -692,60 +703,194 @@ if role == 'Admin':
             results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
             files = results.get('files', [])
             if not files:
-                raise FileNotFoundError(f"Could not find '{spreadsheet_name}' in your Drive folder")
+                raise FileNotFoundError(f"Could not find '{spreadsheet_name}'")
             sh_admin = client.open_by_key(files[0]['id'])
-            names_for_adj = user_engine.get_namelist(client, spreadsheet_name)
             adj_ws = sh_admin.worksheet(target_sheet_name)
-            
-            with st.container(border=True):
-                col_p1, col_p2, col_type = st.columns(3)
-                with col_p1:
-                    person_minus = st.selectbox("Person giving up duty (MINUS)", options=[""] + names_for_adj)
-                with col_p2:
-                    person_plus = st.selectbox("Person taking over duty (ADD)", options=[""] + names_for_adj)
-                with col_type:
-                    day_type = st.selectbox("Day Type", options=["Weekday (WD)", "Friday (F)", "Weekend (WE)", "Holiday (H)"])
 
-                if st.button("+ Record Adjustment", use_container_width=True):
-                    if not person_minus or not person_plus:
-                        st.error("❌ Please select both individuals.")
-                    elif person_minus == person_plus:
-                        st.error("❌ Cannot swap between the same person.")
-                    else:
-                        type_map = {"Weekday (WD)": "WD", "Friday (F)": "F", "Weekend (WE)": "WE", "Holiday (H)": "H"}
-                        suffix = type_map[day_type]
-                        
-                        # find next row in column AW (49)
-                        col_aw_values = adj_ws.col_values(49)
-                        next_row = max(115, len(col_aw_values) + 1)
+            cache_key = f"adj_data_{mmyy}"
+            if cache_key not in st.session_state:
+                with st.spinner("📥 Loading sheet data..."):
+                    adj_ws = sh_admin.worksheet(target_sheet_name)
+                    raw_d_data = adj_ws.get_all_values()
+                    scale_raw = adj_ws.acell('AU3').value
+                    hol_ws = sh_admin.worksheet("Holiday")
+                    hol_data = hol_ws.get_all_values()
+                    
+                    st.session_state[cache_key] = {
+                        "raw_d_data": raw_d_data,
+                        "scale_raw": scale_raw,
+                        "hol_data": hol_data
+                    }
 
-                        updates = [
-                            {'range': f'AW{next_row}:AX{next_row}', 'values': [[person_minus.upper(), f"MINUS 1X {suffix}"]]},
-                            {'range': f'AW{next_row+1}:AX{next_row+1}', 'values': [[person_plus.upper(), f"ADD 1X {suffix}"]]}
-                        ]
-                        
-                        adj_ws.batch_update(updates, value_input_option='USER_ENTERED')
-                        st.success(f"📝 Recorded")
-                        st.rerun()
+            cached = st.session_state[cache_key]
+            raw_d_data = cached["raw_d_data"]
+            scale_raw = cached["scale_raw"]
+            hol_data = cached["hol_data"]
+            adj_ws = sh_admin.worksheet(target_sheet_name)
 
-            # review and clear adjustments
+            # read all sheet data once for filtering
+            all_names = user_engine.get_namelist(client, spreadsheet_name)
+            raw_d_data = adj_ws.get_all_values()
+            d_rows = raw_d_data[3:]  # data from row 4
 
-            st.write("**Current adjustments (AW:AX):**")
-            
-            raw_adj = adj_ws.get("AW37:AX100")
-            if raw_adj:
-                adj_df = pd.DataFrame(raw_adj, columns=["Name", "Adjustment"])
-                st.dataframe(adj_df, use_container_width=True, hide_index=True)
-                
-                if st.button("🗑️ Clear Adjustments (Names/Text Only)", type="secondary"):
-                    adj_ws.batch_clear(["AW37:AX100"])
-                    st.toast("🚮 Adjustment names and text cleared")
-                    st.rerun()
+            # read scale from AU3 on D sheet (col 47 = AU, row 3)
+            try:
+                scale_raw = adj_ws.acell('AU3').value
+                adj_scale = float(scale_raw) if scale_raw and float(scale_raw) > 0 else 1.0
+            except:
+                adj_scale = 1.0
+
+            # read holiday dates for day type detection
+            try:
+                hol_ws = sh_admin.worksheet("Holiday")
+                hol_data = hol_ws.get_all_values()
+                holiday_dates = set()
+                for hrow in hol_data[1:]:
+                    if len(hrow) > 1 and hrow[1].strip():
+                        try:
+                            from datetime import datetime as dt
+                            hdate = dt.strptime(hrow[1].strip(), "%Y-%m-%d").date() if "-" in hrow[1] else None
+                            if hdate:
+                                holiday_dates.add(hdate)
+                        except:
+                            pass
+            except:
+                holiday_dates = set()
+
+            curr_m, curr_y = int(mmyy[:2]), 2000 + int(mmyy[2:])
+
+            # step 1: day picker
+            num_days_in_month = calendar.monthrange(curr_y, curr_m)[1]
+            day_options = [date(curr_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
+            day_labels = [d.strftime("%d %b %Y (%a)") for d in day_options]
+
+            selected_label = st.sidebar.selectbox(
+                "Select Day",
+                options=day_labels,
+                key="swap_date_picker"
+            )
+
+            swap_date = day_options[day_labels.index(selected_label)]
+            selected_day = swap_date.day
+
+            selected_day = swap_date.day  # 1-indexed day number
+            date_col_idx = 4 + selected_day - 1  # 0-indexed pandas col (col E = index 4)
+
+            # determine day type automatically
+            weekday_num = swap_date.weekday()  # 0=Mon, 6=Sun
+            if swap_date in holiday_dates:
+                day_type_code = "H"
+                day_type_label = "Holiday"
+                day_points = point_allocations["holiday_points"]
+            elif weekday_num == 4:
+                day_type_code = "F"
+                day_type_label = "Friday"
+                day_points = point_allocations["friday_points"]
+            elif weekday_num >= 5:
+                day_type_code = "WE"
+                day_type_label = "Weekend"
+                day_points = point_allocations["weekend_points"]
             else:
-                st.caption(f"No adjustments recorded in {target_sheet_name}")
+                day_type_code = "WD"
+                day_type_label = "Weekday"
+                day_points = point_allocations["weekday_points"]
+
+            st.sidebar.caption(f"📅 Day type: **{day_type_label}** ({day_points} pts)")
+
+            # build name lists filtered by D assignments on selected day
+            names_with_d = []
+            names_without_d = []
+            for drow in d_rows:
+                if not drow or len(drow) < 2 or not drow[1].strip():
+                    continue
+                name = drow[1].strip()
+                cell_val = drow[date_col_idx].strip().upper() if date_col_idx < len(drow) else ""
+                if cell_val == "D":
+                    names_with_d.append(name)
+                else:
+                    names_without_d.append(name)
+
+            # step 2: person 1 — must have D on selected day
+            person_1 = st.sidebar.selectbox(
+                "Person giving up duty",
+                options=[""] + names_with_d,
+                key="swap_person_1"
+            )
+
+            # step 3: person 2 — must NOT have D on selected day
+            person_2_options = [n for n in names_without_d if n != person_1]
+            person_2 = st.sidebar.selectbox(
+                "Person taking over duty",
+                options=[""] + person_2_options,
+                key="swap_person_2"
+            )
+
+            # step 4: save button
+            if st.sidebar.button("💾 Save Swap", use_container_width=True):
+                if not person_1:
+                    st.sidebar.error("❌ No one has a D on this day.")
+                elif not person_2:
+                    st.sidebar.error("❌ Please select a person to take over.")
+                else:
+                    try:
+                        # find rows for both people (gspread row = data row index + 4)
+                        p1_row = next(
+                            (i + 4 for i, r in enumerate(d_rows)
+                             if r and len(r) > 1 and r[1].strip() == person_1), None
+                        )
+                        p2_row = next(
+                            (i + 4 for i, r in enumerate(d_rows)
+                             if r and len(r) > 1 and r[1].strip() == person_2), None
+                        )
+
+                        if not p1_row or not p2_row:
+                            st.sidebar.error("❌ Could not locate one or both people in the sheet.")
+                        else:
+                            # col letter for selected day (col E = col 5 in 1-indexed gspread)
+                            day_gs_col = 5 + selected_day - 1
+                            day_col_letter = gspread.utils.rowcol_to_a1(1, day_gs_col)[:-1]
+
+                            # read current offsets from AQ (col 43 in 1-indexed gspread)
+                            p1_offset_raw = adj_ws.cell(p1_row, 43).value
+                            p2_offset_raw = adj_ws.cell(p2_row, 43).value
+                            p1_offset = float(p1_offset_raw) if p1_offset_raw else 0.0
+                            p2_offset = float(p2_offset_raw) if p2_offset_raw else 0.0
+
+                            # compute new offsets: un-normalise, adjust, leave as-is
+                            p1_new_offset = round((p1_offset / adj_scale) - day_points, 4)
+                            p2_new_offset = round((p2_offset / adj_scale) + day_points, 4)
+
+                            # find next empty log row from AU115 down (col 47 = AU)
+                            log_col_vals = adj_ws.col_values(47)
+                            next_log_row = 115
+                            for li in range(114, len(log_col_vals)):
+                                if not log_col_vals[li].strip():
+                                    next_log_row = li + 1
+                                    break
+                            else:
+                                next_log_row = max(115, len(log_col_vals) + 1)
+
+                            updates = [
+                                # swap D: clear person 1, write person 2
+                                {'range': f'{day_col_letter}{p1_row}', 'values': [['']]},
+                                {'range': f'{day_col_letter}{p2_row}', 'values': [['D']]},
+                                # update offsets in AQ
+                                {'range': f'AQ{p1_row}', 'values': [[p1_new_offset]]},
+                                {'range': f'AQ{p2_row}', 'values': [[p2_new_offset]]},
+                                # log entry: AU=name1, AV=name2, AW=day, AX=day type
+                                {'range': f'AU{next_log_row}:AX{next_log_row}',
+                                 'values': [[person_1, person_2, selected_day, day_type_code]]}
+                            ]
+
+                            st.session_state.pop(cache_key, None)
+                            st.sidebar.success(f"✅ Swapped day {selected_day}: {person_1} → {person_2}")
+                            st.rerun()
+
+                    except Exception as e:
+                        st.sidebar.error(f"❌ Swap failed: {e}")
 
         except Exception as e:
-            st.warning(f"No adjustments found.")
+            st.sidebar.warning(f"⚠️ Could not load adjustment tool: {e}")
 
 # --------------------------------------------------
 # USER INTERFACE
