@@ -687,12 +687,10 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
         for p in points_df["points"]
     )
 
-    try:
-        # row 81 and col 43 because pandas is 0-indexed
-        last_month_scale = float(last_month_df.iat[81, 43])
-        if last_month_scale <= 0: last_month_scale = 1.0
-    except:
-        last_month_scale = 1.0 # Default fallback
+    carry_scale = data_bundle.get("carry_scale", 1.0)
+    carry_average = data_bundle.get("carry_average", 0.0)
+
+    last_month_scale = carry_scale if carry_scale > 0 else 1.0
 
     # adjust for any changes to the sheet last month
 
@@ -753,8 +751,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
             matches = np.where(mask.values)
             if len(matches[0]) > 0:
                 row_idx, col_idx = matches[0][0], matches[1][0]
-                avg_val = last_month_df.iat[row_idx, col_idx + 1]
-                bonus_points += int(round(avg_val * SCALE))
+                bonus_points += int(round(carry_average * SCALE))
 
         # current month points
         assigned_points_expr = sum(

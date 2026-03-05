@@ -385,6 +385,17 @@ if role == 'Admin':
 
                     sh = convert_if_excel(client, spreadsheet_name)
 
+                    # read average and scale from current month C sheet
+                    try:
+                        c_ws = sh.worksheet(f"{mmyy}C")
+                        avg_val = c_ws.acell('AU2').value
+                        scale_val = c_ws.acell('AU3').value
+                        carry_average = float(avg_val) if avg_val else 0.0
+                        carry_scale = float(scale_val) if scale_val else 1.0
+                    except:
+                        carry_average = 0.0
+                        carry_scale = 1.0
+
                     with st.spinner("📥 Fetching Sheet Data..."):
 
                         def get_df(sheet_name, header_row=0, use_cols=None):
@@ -424,7 +435,9 @@ if role == 'Admin':
                             "month_old": m_old,
                             "partners": partners_raw,
                             "namelist": namelist_raw,
-                            "last_month": last_month_raw
+                            "last_month": last_month_raw,
+                            "carry_average": carry_average,
+                            "carry_scale": carry_scale
                         }
 
                         planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
@@ -529,7 +542,7 @@ if role == 'Admin':
         sh = client.open(spreadsheet_name)
         
         if err:
-            st.warning(f"⚠️ Roster not yet finalized or accessible: {err}")
+            st.warning(f"⚠️ Roster not yet finalised or accessible: {err}")
         else:
 
             if sheet_used == "D":
@@ -850,7 +863,7 @@ if role == 'User':
         # form section
 
         with st.form("user_submission_form"):
-            st.subheader("Step 3: Finalize Details")
+            st.subheader("Step 3: Finalise Details")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -940,7 +953,7 @@ if role == 'User':
         sh = client.open(spreadsheet_name)
         
         if err:
-            st.warning(f"⚠️ Roster not yet finalized or accessible: {err}")
+            st.warning(f"⚠️ Roster not yet finalised or accessible: {err}")
         else:
 
             if sheet_used == "D":
