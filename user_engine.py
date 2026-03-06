@@ -48,16 +48,13 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
             pass
 
         # get partner from Partners sheet
+        # structure: col B = Names (everyone), col C = Partner
         partner = "None"
         try:
             cell = p_ws.find(user_name, in_column=2)
-            partner = p_ws.cell(cell.row, 3).value or "None"  # NAME 2 = col C
+            partner = p_ws.cell(cell.row, 3).value or "None"
         except:
-            try:
-                cell = p_ws.find(user_name, in_column=3)      # search col C
-                partner = p_ws.cell(cell.row, 2).value or "None"  # NAME 1 = col B
-            except:
-                pass
+            pass
 
         # get X and D markers
         user_cell = c_ws.find(user_name, in_column=2)
@@ -89,30 +86,50 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         except:
             logs.append(f"⚠️ Could not update driving status in Namelist for {user_name}")
 
-        # find user in partners sheet
-        cell = None
-        is_primary = True
-        try:
-            cell = p_ws.find(user_name, in_column=2)
-            is_primary = True
-        except gspread.exceptions.CellNotFound:
-            try:
-                cell = p_ws.find(user_name, in_column=3)  # col C = NAME 2
-                is_primary = False
-            except gspread.exceptions.CellNotFound:
-                logs.append(f"⚠️ {user_name} not found in Partners sheet.")
+        # update Partners sheet
+        # structure: col B = Names (everyone), col C = Partner
+        # read all partner data once to avoid repeated API calls
+        p_data = p_ws.get_all_values()
+        name_to_prow = {}
+        for i, row in enumerate(p_data):
+            n = row[1].strip() if len(row) > 1 else ""
+            if n:
+                name_to_prow[n] = i + 1  # 1-indexed gspread row
 
-        if cell:
-            row_idx = cell.row
-            partner_name = partner if partner != "None" else ""
+        partner_name = partner if partner != "None" else ""
+        p_updates = []
 
-            if is_primary:
-                p_updates = [{'range': f'C{row_idx}', 'values': [[partner_name]]}]  # NAME 2 = col C
-            else:
-                p_updates = [{'range': f'B{row_idx}', 'values': [[partner_name]]}]  # NAME 1 = col B
+        if user_name in name_to_prow:
+            u_prow = name_to_prow[user_name]
 
-            p_ws.batch_update(p_updates, value_input_option='USER_ENTERED')
-            logs.append(f"✅ Step 1b: Updated Partners sheet for {user_name} and partner {partner_name}")
+            # read old partner before overwriting
+            old_partner = p_data[u_prow - 1][2].strip() if len(p_data[u_prow - 1]) > 2 else ""
+
+            # write new partner for user
+            p_updates.append({'range': f'C{u_prow}', 'values': [[partner_name]]})
+
+            # blank old partner's col C if they had a different partner
+            if old_partner and old_partner != partner_name and old_partner in name_to_prow:
+                old_prow = name_to_prow[old_partner]
+                p_updates.append({'range': f'C{old_prow}', 'values': [[""]]})
+
+            # update new partner's row
+            if partner_name and partner_name in name_to_prow:
+                np_row = name_to_prow[partner_name]
+                np_old_partner = p_data[np_row - 1][2].strip() if len(p_data[np_row - 1]) > 2 else ""
+                # blank new partner's old partner if different
+                if np_old_partner and np_old_partner != user_name and np_old_partner in name_to_prow:
+                    npo_row = name_to_prow[np_old_partner]
+                    p_updates.append({'range': f'C{npo_row}', 'values': [[""]]})
+                # write user as new partner's partner
+                p_updates.append({'range': f'C{np_row}', 'values': [[user_name]]})
+
+            if p_updates:
+                p_ws.batch_update(p_updates, value_input_option='USER_ENTERED')
+            logs.append(f"✅ Step 1b: Updated Partners sheet for {user_name} → {partner_name or 'None'}")
+
+        else:
+            logs.append(f"⚠️ {user_name} not found in Partners sheet — skipping partner update.")
 
         # update constraint sheet
         c_ws = sh.worksheet(f"{mmyy}C")

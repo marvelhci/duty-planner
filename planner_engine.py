@@ -378,13 +378,22 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
         name = str(constraint_df.iat[r, 1]).strip().upper()
         name_to_row[name] = r
 
+    # Partners structure: col B = Names (everyone), col C = Partner
+    # each valid pair appears twice — deduplicate with frozensets
     partner_pairs = []
+    seen_pairs = set()
     for i in range(0, len(partners_df)):
-        p1_name = str(partners_df.iloc[i, 1]).strip().upper()  # NAME 1 = col B = index 1
-        p2_name = str(partners_df.iloc[i, 2]).strip().upper()  # NAME 2 = col C = index 2
+        p1_name = str(partners_df.iloc[i, 1]).strip().upper()  # Names col = index 1
+        p2_name = str(partners_df.iloc[i, 2]).strip().upper()  # Partner col = index 2
 
+        if not p1_name or not p2_name or p2_name in ("NAN", "") or p1_name in ("NAN", ""):
+            continue
+        pair_key = frozenset([p1_name, p2_name])
+        if pair_key in seen_pairs:
+            continue
         if p1_name in name_to_row and p2_name in name_to_row:
             partner_pairs.append((name_to_row[p1_name], name_to_row[p2_name]))
+            seen_pairs.add(pair_key)
 
     # soft constraint 2 set-up
 

@@ -538,7 +538,7 @@ if role == 'Admin':
                     st.error("❌ Please enter both name and branch.")
                 else:
                     try:
-                        sh = convert_if_excel(client, spreadsheet_name)
+                        sh_add = convert_if_excel(client, spreadsheet_name)
                         year_str = str(2000 + int(mmyy[2:]))
 
                         def find_insert_row(rows, name_col, branch_col, branch, new_name, data_start_row):
@@ -596,41 +596,45 @@ if role == 'Admin':
 
                         # 1. NAMELIST
                         with st.spinner("📋 Updating Namelist..."):
-                            nl_data = sh.worksheet("Namelist").get_all_values()
-                            nl_rows = nl_data[1:]
-                            nl_insert = find_insert_row(nl_rows, 1, 2, new_branch, new_name, data_start_row=2)
-                            nl_ws = insert_row_and_copy(sh, "Namelist", nl_insert, template_gs_row=2)
+                            nl_data = sh_add.worksheet("Namelist").get_all_values()
+                            nl_insert = find_insert_row(nl_data[1:], 1, 2, new_branch, new_name, data_start_row=2)
+                            nl_ws = insert_row_and_copy(sh_add, "Namelist", nl_insert, template_gs_row=2)
                             nl_ws.update(f'B{nl_insert}', [[new_name]])
                             nl_ws.update(f'C{nl_insert}', [[new_branch]])
                             nl_ws.update(f'D{nl_insert}', [['NON-DRIVER']])
 
-                        # 2. YEAR SHEET
+                        # 2. PARTNERS — add row with blank partner
+                        with st.spinner("🤝 Updating Partners..."):
+                            p_data_add = sh_add.worksheet("Partners").get_all_values()
+                            p_insert = find_insert_row(p_data_add[1:], 1, 2, new_branch, new_name, data_start_row=2)
+                            p_ws_add = insert_row_and_copy(sh_add, "Partners", p_insert, template_gs_row=2)
+                            p_ws_add.update(f'B{p_insert}', [[new_name]])
+                            p_ws_add.update(f'C{p_insert}', [[""]])
+
+                        # 3. YEAR SHEET
                         with st.spinner(f"📅 Updating {year_str} sheet..."):
-                            yr_data = sh.worksheet(year_str).get_all_values()
-                            yr_rows = yr_data[2:]
-                            yr_insert = find_insert_row(yr_rows, 1, 2, new_branch, new_name, data_start_row=3)
-                            yr_ws = insert_row_and_copy(sh, year_str, yr_insert, template_gs_row=3)
+                            yr_data = sh_add.worksheet(year_str).get_all_values()
+                            yr_insert = find_insert_row(yr_data[2:], 1, 2, new_branch, new_name, data_start_row=3)
+                            yr_ws = insert_row_and_copy(sh_add, year_str, yr_insert, template_gs_row=3)
                             yr_ws.update(f'B{yr_insert}', [[new_name]])
 
-                        # 3. C SHEET
+                        # 4. C SHEET
                         with st.spinner(f"📄 Updating {mmyy}C sheet..."):
-                            c_sheet = f"{mmyy}C"
-                            c_data = sh.worksheet(c_sheet).get_all_values()
-                            c_rows = c_data[3:]
-                            c_insert = find_insert_row(c_rows, 1, 2, new_branch, new_name, data_start_row=4)
-                            c_ws = insert_row_and_copy(sh, c_sheet, c_insert, template_gs_row=4)
-                            c_ws.update(f'B{c_insert}', [[new_name]])
-                            c_ws.batch_clear([f"E{c_insert}:AI{c_insert}"])
-                            c_ws.update(f'AQ{c_insert}', [[0.00]])
-                            c_ws.update(f'AR{c_insert}', [['NEW']])
+                            c_sheet_name = f"{mmyy}C"
+                            c_data = sh_add.worksheet(c_sheet_name).get_all_values()
+                            c_insert = find_insert_row(c_data[3:], 1, 2, new_branch, new_name, data_start_row=4)
+                            c_ws_add = insert_row_and_copy(sh_add, c_sheet_name, c_insert, template_gs_row=4)
+                            c_ws_add.update(f'B{c_insert}', [[new_name]])
+                            c_ws_add.batch_clear([f"E{c_insert}:AI{c_insert}"])
+                            c_ws_add.update(f'AQ{c_insert}', [[0.00]])
+                            c_ws_add.update(f'AR{c_insert}', [['NEW']])
 
-                        # clear caches
                         fetch_sheet_data.clear()
                         for key in list(st.session_state.keys()):
                             if key.startswith("roster_") or key.startswith("adj_data_"):
                                 st.session_state.pop(key)
 
-                        st.success(f"✅ {new_name} ({new_branch}) added to Namelist, {year_str}, and {mmyy}C!")
+                        st.success(f"✅ {new_name} ({new_branch}) added to Namelist, Partners, {year_str}, and {mmyy}C!")
 
                     except Exception as e:
                         st.error(f"❌ Failed to add person: {e}")
@@ -656,8 +660,25 @@ if role == 'Admin':
                         if not cell:
                             st.error(f"❌ {remove_name} not found in {c_sheet}.")
                         else:
-                            # delete the row entirely
+                            # delete the row from C sheet
                             c_ws.delete_rows(cell.row)
+
+                            # blank removed person's partner's col C in Partners sheet
+                            try:
+                                p_ws_rem = sh.worksheet("Partners")
+                                p_data_rem = p_ws_rem.get_all_values()
+                                name_to_prow = {
+                                    r[1].strip(): i + 1
+                                    for i, r in enumerate(p_data_rem)
+                                    if len(r) > 1 and r[1].strip()
+                                }
+                                if remove_name in name_to_prow:
+                                    rem_prow = name_to_prow[remove_name]
+                                    old_partner = p_data_rem[rem_prow - 1][2].strip() if len(p_data_rem[rem_prow - 1]) > 2 else ""
+                                    if old_partner and old_partner in name_to_prow:
+                                        p_ws_rem.update(f'C{name_to_prow[old_partner]}', [[""]])
+                            except Exception as pe:
+                                st.warning(f"⚠️ Could not blank partner's entry: {pe}")
 
                             # clear caches
                             fetch_sheet_data.clear()
