@@ -1334,7 +1334,8 @@ if role == 'User':
             st.error(f"❌ Storage failed: {e}")
         
         names_list = fetch_namelist(client, spreadsheet_name)
-        selected_name = st.selectbox("Step 1: Select Your Name to Load Data", options=[""] + names_list)
+        st.subheader("Step 1: Select Your Name")
+        selected_name = st.selectbox("", options=[""] + names_list)
 
         defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
 
