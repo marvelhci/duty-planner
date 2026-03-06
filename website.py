@@ -519,6 +519,123 @@ if role == 'Admin':
                 else:
                     st.warning("⚠️ Run the optimiser first!")
 
+        # --------------------------------------------------
+        # ADD PERSONNEL
+        # --------------------------------------------------
+
+        st.markdown("---")
+        st.subheader("👤 Add Personnel")
+
+        with st.container(border=True):
+            col_name, col_branch = st.columns(2)
+            with col_name:
+                new_name = st.text_input("Full Name (as it should appear)", key="new_person_name").strip().upper()
+            with col_branch:
+                new_branch = st.text_input("Branch (e.g. OS1)", key="new_person_branch").strip().upper()
+
+            if st.button("➕ Add Person", use_container_width=True):
+                if not new_name or not new_branch:
+                    st.error("❌ Please enter both name and branch.")
+                else:
+                    try:
+                        sh = convert_if_excel(client, spreadsheet_name)
+                        year_str = str(2000 + int(mmyy[2:]))
+
+                        def find_insert_row(rows, name_col, branch_col, branch, new_name, data_start_row):
+                            branch_rows = []
+                            for i, r in enumerate(rows):
+                                b = r[branch_col].strip().upper() if len(r) > branch_col else ""
+                                n = r[name_col].strip().upper() if len(r) > name_col else ""
+                                if b == branch and n:
+                                    branch_rows.append((i + data_start_row, n))
+                            if not branch_rows:
+                                for i, r in enumerate(rows):
+                                    n = r[name_col].strip() if len(r) > name_col else ""
+                                    if not n:
+                                        return i + data_start_row
+                                return len(rows) + data_start_row
+                            for gs_row, existing_name in branch_rows:
+                                if new_name < existing_name:
+                                    return gs_row
+                            return branch_rows[-1][0] + 1
+
+                        def insert_row_and_copy(sh, sheet_name, insert_gs_row, template_gs_row):
+                            ws = sh.worksheet(sheet_name)
+                            sheet_id = ws.id
+                            body = {"requests": [
+                                {"insertDimension": {
+                                    "range": {
+                                        "sheetId": sheet_id,
+                                        "dimension": "ROWS",
+                                        "startIndex": insert_gs_row - 1,
+                                        "endIndex": insert_gs_row
+                                    },
+                                    "inheritFromBefore": False
+                                }},
+                                {"copyPaste": {
+                                    "source": {
+                                        "sheetId": sheet_id,
+                                        "startRowIndex": template_gs_row - 1,
+                                        "endRowIndex": template_gs_row,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": 70
+                                    },
+                                    "destination": {
+                                        "sheetId": sheet_id,
+                                        "startRowIndex": insert_gs_row - 1,
+                                        "endRowIndex": insert_gs_row,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": 70
+                                    },
+                                    "pasteType": "PASTE_FORMULA",
+                                    "pasteOrientation": "NORMAL"
+                                }}
+                            ]}
+                            sh.batch_update(body)
+                            return sh.worksheet(sheet_name)
+
+                        # 1. NAMELIST
+                        with st.spinner("📋 Updating Namelist..."):
+                            nl_data = sh.worksheet("Namelist").get_all_values()
+                            nl_rows = nl_data[1:]
+                            nl_insert = find_insert_row(nl_rows, 1, 2, new_branch, new_name, data_start_row=2)
+                            nl_ws = insert_row_and_copy(sh, "Namelist", nl_insert, template_gs_row=2)
+                            nl_ws.update(f'B{nl_insert}', [[new_name]])
+                            nl_ws.update(f'C{nl_insert}', [[new_branch]])
+                            nl_ws.update(f'D{nl_insert}', [['NON-DRIVER']])
+
+                        # 2. YEAR SHEET
+                        with st.spinner(f"📅 Updating {year_str} sheet..."):
+                            yr_data = sh.worksheet(year_str).get_all_values()
+                            yr_rows = yr_data[2:]
+                            yr_insert = find_insert_row(yr_rows, 1, 2, new_branch, new_name, data_start_row=3)
+                            yr_ws = insert_row_and_copy(sh, year_str, yr_insert, template_gs_row=3)
+                            yr_ws.update(f'B{yr_insert}', [[new_name]])
+
+                        # 3. C SHEET
+                        with st.spinner(f"📄 Updating {mmyy}C sheet..."):
+                            c_sheet = f"{mmyy}C"
+                            c_data = sh.worksheet(c_sheet).get_all_values()
+                            c_rows = c_data[3:]
+                            c_insert = find_insert_row(c_rows, 1, 2, new_branch, new_name, data_start_row=4)
+                            c_ws = insert_row_and_copy(sh, c_sheet, c_insert, template_gs_row=4)
+                            c_ws.update(f'B{c_insert}', [[new_name]])
+                            c_ws.batch_clear([f"E{c_insert}:AI{c_insert}"])
+                            c_ws.update(f'AQ{c_insert}', [[0.00]])
+                            c_ws.update(f'AR{c_insert}', [['NEW']])
+
+                        # clear caches
+                        fetch_sheet_data.clear()
+                        for key in list(st.session_state.keys()):
+                            if key.startswith("roster_") or key.startswith("adj_data_"):
+                                st.session_state.pop(key)
+
+                        st.success(f"✅ {new_name} ({new_branch}) added to Namelist, {year_str}, and {mmyy}C!")
+
+                    except Exception as e:
+                        st.error(f"❌ Failed to add person: {e}")
+                        st.code(traceback.format_exc())
+
     if admin_page == "✏️ Editing":
 
         mmyy = st.text_input("Month/Year (MMYY) to edit", value="0126")
