@@ -635,6 +635,41 @@ if role == 'Admin':
                     except Exception as e:
                         st.error(f"❌ Failed to add person: {e}")
                         st.code(traceback.format_exc())
+        
+        st.subheader("🗑️ Remove Personnel")
+
+        with st.container(border=True):
+            names_for_removal = fetch_namelist(client, spreadsheet_name)
+            remove_name = st.selectbox("Select Person to Remove", options=[""] + names_for_removal, key="remove_person_name")
+
+            if st.button("🗑️ Remove Person", use_container_width=True):
+                if not remove_name:
+                    st.error("❌ Please select a person.")
+                else:
+                    try:
+                        sh = convert_if_excel(client, spreadsheet_name)
+                        c_sheet = f"{mmyy}C"
+                        c_ws = sh.worksheet(c_sheet)
+
+                        # find the person's row
+                        cell = c_ws.find(remove_name, in_column=2)
+                        if not cell:
+                            st.error(f"❌ {remove_name} not found in {c_sheet}.")
+                        else:
+                            # delete the row entirely
+                            c_ws.delete_rows(cell.row)
+
+                            # clear caches
+                            fetch_sheet_data.clear()
+                            for key in list(st.session_state.keys()):
+                                if key.startswith("roster_") or key.startswith("adj_data_"):
+                                    st.session_state.pop(key)
+
+                            st.success(f"✅ {remove_name} removed from {c_sheet}.")
+
+                    except Exception as e:
+                        st.error(f"❌ Failed to remove person: {e}")
+                        st.code(traceback.format_exc())
 
     if admin_page == "✏️ Editing":
 
