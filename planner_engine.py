@@ -37,13 +37,11 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
         
         # write normalised points
         pts_val = planned_df.iat[r_idx, offset_col_idx]
-        updates.append({'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 1), 
-                        'values': [[round(pts_val, 2)]]})
+        updates.append({'range': 'AQ' + str(gs_row), 'values': [[round(pts_val, 2)]]})
         
         # write estimated duties (AS = offset_col_idx + 2)
         est_val = planned_df.loc[r_idx, "Est_Next_Month_Duties"]
-        updates.append({'range': gspread.utils.rowcol_to_a1(gs_row, offset_col_idx + 2), 
-                        'values': [[est_val]]})
+        updates.append({'range': 'AS' + str(gs_row), 'values': [[est_val]]})
 
         # write D and S assignments
         for c_idx in range(date_start_col, date_end_col + 1):
@@ -53,7 +51,7 @@ def create_backup_and_output(client, spreadsheet_name, mmyy, planned_df, norm_sc
                                 'values': [[val]]})
 
     # write normal scale to reference cell (AR82)
-    updates.append({'range': 'AR82', 'values': [[round(norm_scale, 4)]]})
+    updates.append({'range': 'AU3', 'values': [[round(norm_scale, 4)]]})
     
     output_ws.batch_update(updates)
     return output_name
