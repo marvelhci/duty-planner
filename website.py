@@ -10,6 +10,7 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+import requests as http_requests
 
 st.set_page_config(page_title="Duty Planner", layout="wide")
 
@@ -538,7 +539,7 @@ if role == 'Admin':
                     st.error("❌ Please enter both name and branch.")
                 else:
                     try:
-                        sh_add = convert_if_excel(client, spreadsheet_name)
+                        sh = convert_if_excel(client, spreadsheet_name)
                         year_str = str(2000 + int(mmyy[2:]))
 
                         def find_insert_row(rows, name_col, branch_col, branch, new_name, data_start_row):
@@ -596,45 +597,41 @@ if role == 'Admin':
 
                         # 1. NAMELIST
                         with st.spinner("📋 Updating Namelist..."):
-                            nl_data = sh_add.worksheet("Namelist").get_all_values()
-                            nl_insert = find_insert_row(nl_data[1:], 1, 2, new_branch, new_name, data_start_row=2)
-                            nl_ws = insert_row_and_copy(sh_add, "Namelist", nl_insert, template_gs_row=2)
+                            nl_data = sh.worksheet("Namelist").get_all_values()
+                            nl_rows = nl_data[1:]
+                            nl_insert = find_insert_row(nl_rows, 1, 2, new_branch, new_name, data_start_row=2)
+                            nl_ws = insert_row_and_copy(sh, "Namelist", nl_insert, template_gs_row=2)
                             nl_ws.update(f'B{nl_insert}', [[new_name]])
                             nl_ws.update(f'C{nl_insert}', [[new_branch]])
                             nl_ws.update(f'D{nl_insert}', [['NON-DRIVER']])
 
-                        # 2. PARTNERS — add row with blank partner
-                        with st.spinner("🤝 Updating Partners..."):
-                            p_data_add = sh_add.worksheet("Partners").get_all_values()
-                            p_insert = find_insert_row(p_data_add[1:], 1, 2, new_branch, new_name, data_start_row=2)
-                            p_ws_add = insert_row_and_copy(sh_add, "Partners", p_insert, template_gs_row=2)
-                            p_ws_add.update(f'B{p_insert}', [[new_name]])
-                            p_ws_add.update(f'C{p_insert}', [[""]])
-
-                        # 3. YEAR SHEET
+                        # 2. YEAR SHEET
                         with st.spinner(f"📅 Updating {year_str} sheet..."):
-                            yr_data = sh_add.worksheet(year_str).get_all_values()
-                            yr_insert = find_insert_row(yr_data[2:], 1, 2, new_branch, new_name, data_start_row=3)
-                            yr_ws = insert_row_and_copy(sh_add, year_str, yr_insert, template_gs_row=3)
+                            yr_data = sh.worksheet(year_str).get_all_values()
+                            yr_rows = yr_data[2:]
+                            yr_insert = find_insert_row(yr_rows, 1, 2, new_branch, new_name, data_start_row=3)
+                            yr_ws = insert_row_and_copy(sh, year_str, yr_insert, template_gs_row=3)
                             yr_ws.update(f'B{yr_insert}', [[new_name]])
 
-                        # 4. C SHEET
+                        # 3. C SHEET
                         with st.spinner(f"📄 Updating {mmyy}C sheet..."):
-                            c_sheet_name = f"{mmyy}C"
-                            c_data = sh_add.worksheet(c_sheet_name).get_all_values()
-                            c_insert = find_insert_row(c_data[3:], 1, 2, new_branch, new_name, data_start_row=4)
-                            c_ws_add = insert_row_and_copy(sh_add, c_sheet_name, c_insert, template_gs_row=4)
-                            c_ws_add.update(f'B{c_insert}', [[new_name]])
-                            c_ws_add.batch_clear([f"E{c_insert}:AI{c_insert}"])
-                            c_ws_add.update(f'AQ{c_insert}', [[0.00]])
-                            c_ws_add.update(f'AR{c_insert}', [['NEW']])
+                            c_sheet = f"{mmyy}C"
+                            c_data = sh.worksheet(c_sheet).get_all_values()
+                            c_rows = c_data[3:]
+                            c_insert = find_insert_row(c_rows, 1, 2, new_branch, new_name, data_start_row=4)
+                            c_ws = insert_row_and_copy(sh, c_sheet, c_insert, template_gs_row=4)
+                            c_ws.update(f'B{c_insert}', [[new_name]])
+                            c_ws.batch_clear([f"E{c_insert}:AI{c_insert}"])
+                            c_ws.update(f'AQ{c_insert}', [[0.00]])
+                            c_ws.update(f'AR{c_insert}', [['NEW']])
 
+                        # clear caches
                         fetch_sheet_data.clear()
                         for key in list(st.session_state.keys()):
                             if key.startswith("roster_") or key.startswith("adj_data_"):
                                 st.session_state.pop(key)
 
-                        st.success(f"✅ {new_name} ({new_branch}) added to Namelist, Partners, {year_str}, and {mmyy}C!")
+                        st.success(f"✅ {new_name} ({new_branch}) added to Namelist, {year_str}, and {mmyy}C!")
 
                     except Exception as e:
                         st.error(f"❌ Failed to add person: {e}")
@@ -660,25 +657,8 @@ if role == 'Admin':
                         if not cell:
                             st.error(f"❌ {remove_name} not found in {c_sheet}.")
                         else:
-                            # delete the row from C sheet
+                            # delete the row entirely
                             c_ws.delete_rows(cell.row)
-
-                            # blank removed person's partner's col C in Partners sheet
-                            try:
-                                p_ws_rem = sh.worksheet("Partners")
-                                p_data_rem = p_ws_rem.get_all_values()
-                                name_to_prow = {
-                                    r[1].strip(): i + 1
-                                    for i, r in enumerate(p_data_rem)
-                                    if len(r) > 1 and r[1].strip()
-                                }
-                                if remove_name in name_to_prow:
-                                    rem_prow = name_to_prow[remove_name]
-                                    old_partner = p_data_rem[rem_prow - 1][2].strip() if len(p_data_rem[rem_prow - 1]) > 2 else ""
-                                    if old_partner and old_partner in name_to_prow:
-                                        p_ws_rem.update(f'C{name_to_prow[old_partner]}', [[""]])
-                            except Exception as pe:
-                                st.warning(f"⚠️ Could not blank partner's entry: {pe}")
 
                             # clear caches
                             fetch_sheet_data.clear()
@@ -917,6 +897,185 @@ if role == 'Admin':
             st.caption(f"Could not load adjustments: {e}")
 
         # --------------------------------------------------
+        # DOWNLOADS
+        # --------------------------------------------------
+        st.markdown("### 📥 Downloads")
+        dl_col1, dl_col2, dl_col3 = st.columns(3)
+
+        # Button 1: Calendar PDF
+        with dl_col1:
+            if sheet_used == "D" and roster_data:
+                if st.button("🗓️ Calendar PDF", use_container_width=True):
+                    try:
+                        import weasyprint
+                        cal_first_day = date(2000 + int(mmyy[2:]), int(mmyy[:2]), 1)
+                        cal_num_days = calendar.monthrange(2000 + int(mmyy[2:]), int(mmyy[:2]))[1]
+                        cal_start_pad = cal_first_day.weekday()
+                        month_label = cal_first_day.strftime("%B %Y")
+                        dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+                        css_lines = [
+                            "body { font-family: Arial, sans-serif; background: white; color: black; margin: 20px; }",
+                            "h2 { text-align: center; margin-bottom: 16px; }",
+                            "table { width: 100%; border-collapse: collapse; table-layout: fixed; }",
+                            "th { background: #333; color: white; padding: 8px; text-align: center; font-size: 12px; }",
+                            "td { border: 1px solid #ccc; vertical-align: top; height: 110px; padding: 6px; width: 14.28%; }",
+                            ".day-num { font-weight: bold; font-size: 13px; display: block; margin-bottom: 4px; }",
+                            ".duty-item { font-size: 9px; background: #1a73e8; color: white; border-radius: 4px; padding: 2px 5px; margin-bottom: 3px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }",
+                            ".standby-item { font-size: 10px; color: #333; display: block; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+                        ]
+                        css = " ".join(css_lines)
+
+                        cal_html = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>" + css + "</style></head><body>"
+                        cal_html += "<h2>" + month_label + " Duty Roster</h2><table><thead><tr>"
+                        for d in dow:
+                            cal_html += "<th>" + d + "</th>"
+                        cal_html += "</tr></thead><tbody><tr>"
+
+                        for _ in range(cal_start_pad):
+                            cal_html += "<td></td>"
+                        col_idx = cal_start_pad
+
+                        for day in range(1, cal_num_days + 1):
+                            if col_idx == 7:
+                                cal_html += "</tr><tr>"
+                                col_idx = 0
+                            info = roster_data.get(str(day), {"duty": [], "standby": []})
+                            cal_html += '<td><span class="day-num">' + str(day) + "</span>"
+                            for n in info["duty"]:
+                                cal_html += '<span class="duty-item">' + n + "</span>"
+                            for n in info["standby"]:
+                                cal_html += '<span class="standby-item">' + n + "</span>"
+                            cal_html += "</td>"
+                            col_idx += 1
+
+                        while col_idx < 7:
+                            cal_html += "<td></td>"
+                            col_idx += 1
+                        cal_html += "</tr></tbody></table></body></html>"
+
+                        pdf_bytes = weasyprint.HTML(string=cal_html).write_pdf(
+                            stylesheets=[weasyprint.CSS(string="@page { size: A4 landscape; margin: 1cm; }")]
+                        )
+                        st.download_button(
+                            label="⬇️ Download Calendar PDF",
+                            data=pdf_bytes,
+                            file_name=mmyy + "_roster_calendar.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.error("❌ Calendar PDF failed: " + str(e))
+            else:
+                st.button("🗓️ Calendar PDF", disabled=True, use_container_width=True,
+                          help="Only available when D sheet exists")
+
+        # Button 2: D Sheet PDF via Google Sheets export API
+        with dl_col2:
+            if sheet_used == "D":
+                if st.button("📄 D Sheet PDF", use_container_width=True):
+                    try:
+                        personal_drive_dl = get_personal_drive_service()
+                        folder_id_dl = st.secrets["app_config"]["personal_drive_folder_id"]
+                        sid_dl = fetch_spreadsheet_id(personal_drive_dl, folder_id_dl, spreadsheet_name)
+                        if not sid_dl:
+                            st.error("❌ Could not find spreadsheet.")
+                        else:
+                            sh_dl = client.open_by_key(sid_dl)
+                            d_ws_dl = sh_dl.worksheet(mmyy + "D")
+                            sheet_gid_dl = d_ws_dl.id
+
+                            d_raw_dl = fetch_sheet_data(client, spreadsheet_name, mmyy + "D")
+                            last_name_row_dl = 3
+                            for ri, rrow in enumerate(d_raw_dl[3:], start=4):
+                                if len(rrow) > 1 and rrow[1].strip():
+                                    last_name_row_dl = ri
+
+                            export_url_dl = (
+                                "https://docs.google.com/spreadsheets/d/" + sid_dl + "/export"
+                                "?format=pdf"
+                                "&gid=" + str(sheet_gid_dl) +
+                                "&portrait=false"
+                                "&fitw=true"
+                                "&gridlines=true"
+                                "&r1=0&c1=0&r2=" + str(last_name_row_dl) + "&c2=45"
+                                "&ir=false&ic=false"
+                            )
+
+                            info_dl = st.secrets["personal_account"]
+                            creds_dl = Credentials(
+                                token=info_dl["token"],
+                                refresh_token=info_dl["refresh_token"],
+                                client_id=info_dl["client_id"],
+                                client_secret=info_dl["client_secret"],
+                                token_uri=info_dl["token_uri"]
+                            )
+                            if creds_dl.expired:
+                                creds_dl.refresh(Request())
+
+                            resp_dl = http_requests.get(
+                                export_url_dl,
+                                headers={"Authorization": "Bearer " + creds_dl.token}
+                            )
+                            if resp_dl.status_code == 200:
+                                st.download_button(
+                                    label="⬇️ Download D Sheet PDF",
+                                    data=resp_dl.content,
+                                    file_name=mmyy + "D_sheet.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
+                            else:
+                                st.error("❌ Export failed: HTTP " + str(resp_dl.status_code))
+                    except Exception as e:
+                        st.error("❌ D Sheet PDF failed: " + str(e))
+            else:
+                st.button("📄 D Sheet PDF", disabled=True, use_container_width=True,
+                          help="Only available when D sheet exists")
+
+        # Button 3: Master Sheet Excel (always available)
+        with dl_col3:
+            if st.button("📊 Master Sheet Excel", use_container_width=True):
+                try:
+                    personal_drive_xl = get_personal_drive_service()
+                    folder_id_xl = st.secrets["app_config"]["personal_drive_folder_id"]
+                    sid_xl = fetch_spreadsheet_id(personal_drive_xl, folder_id_xl, spreadsheet_name)
+                    if not sid_xl:
+                        st.error("❌ Could not find spreadsheet.")
+                    else:
+                        export_url_xl = (
+                            "https://docs.google.com/spreadsheets/d/" + sid_xl + "/export"
+                            "?format=xlsx"
+                        )
+                        info_xl = st.secrets["personal_account"]
+                        creds_xl = Credentials(
+                            token=info_xl["token"],
+                            refresh_token=info_xl["refresh_token"],
+                            client_id=info_xl["client_id"],
+                            client_secret=info_xl["client_secret"],
+                            token_uri=info_xl["token_uri"]
+                        )
+                        if creds_xl.expired:
+                            creds_xl.refresh(Request())
+
+                        resp_xl = http_requests.get(
+                            export_url_xl,
+                            headers={"Authorization": "Bearer " + creds_xl.token}
+                        )
+                        if resp_xl.status_code == 200:
+                            st.download_button(
+                                label="⬇️ Download Excel",
+                                data=resp_xl.content,
+                                file_name=spreadsheet_name + ".xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        else:
+                            st.error("❌ Export failed: HTTP " + str(resp_xl.status_code))
+                except Exception as e:
+                    st.error("❌ Excel download failed: " + str(e))
+
+        # --------------------------------------------------
         # SIDEBAR: MANUAL DUTY SWAP
         # --------------------------------------------------
         st.sidebar.title("📅 Editing Settings")
@@ -981,8 +1140,9 @@ if role == 'Admin':
                         pass
 
             # step 1: day picker
+            view_y = curr_y + 2000
             num_days_in_month = calendar.monthrange(curr_y, curr_m)[1]
-            day_options = [date(curr_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
+            day_options = [date(view_y, curr_m, d) for d in range(1, num_days_in_month + 1)]
             day_labels = [d.strftime("%d %b %Y (%a)") for d in day_options]
 
             selected_label = st.sidebar.selectbox(
