@@ -704,6 +704,46 @@ if role == 'Admin':
             st.markdown(html_table, unsafe_allow_html=True)
 
         # --------------------------------------------------
+        # MANUAL ADJUSTMENTS TABLE
+        # --------------------------------------------------
+        st.markdown("### 🔄 Manual Adjustments")
+        adj_cache_key = f"adj_data_{mmyy}"
+        try:
+            # use cached D sheet data if available, otherwise fetch
+            if adj_cache_key in st.session_state:
+                adj_raw = st.session_state[adj_cache_key]["raw_d_data"]
+            else:
+                adj_raw = fetch_sheet_data(client, spreadsheet_name, f"{mmyy}D")
+
+            # find "NAME 1" header row in col AU (index 46)
+            header_row_idx = None
+            for li, rrow in enumerate(adj_raw):
+                if len(rrow) > 46 and rrow[46].strip().upper() == "NAME 1":
+                    header_row_idx = li
+                    break
+
+            if header_row_idx is None:
+                st.caption("No adjustments table found in sheet.")
+            else:
+                # collect rows below header until empty
+                adj_entries = []
+                for rrow in adj_raw[header_row_idx + 1:]:
+                    name1 = rrow[46].strip() if len(rrow) > 46 else ""
+                    if not name1:
+                        break
+                    name2 = rrow[47].strip() if len(rrow) > 47 else ""
+                    day   = rrow[48].strip() if len(rrow) > 48 else ""
+                    dtype = rrow[49].strip() if len(rrow) > 49 else ""
+                    adj_entries.append({"Name 1": name1, "Name 2": name2, "Day": day, "Day Type": dtype})
+
+                if adj_entries:
+                    st.dataframe(pd.DataFrame(adj_entries), use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No adjustments recorded yet.")
+        except Exception as e:
+            st.caption(f"Could not load adjustments: {e}")
+
+        # --------------------------------------------------
         # SIDEBAR: MANUAL DUTY SWAP
         # --------------------------------------------------
         st.sidebar.title("📅 Editing Settings")
