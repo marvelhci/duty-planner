@@ -1454,7 +1454,7 @@ if role == 'User':
 
     if user_page == "🗓️ Viewer":
 
-        mmyy = st.text_input("Month/Year (MMYY) to edit", value="0126")
+        mmyy = st.text_input("Month/Year (MMYY) to view", value="0126")
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
