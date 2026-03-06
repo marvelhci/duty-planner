@@ -907,27 +907,33 @@ if role == 'Admin':
             if sheet_used == "D" and roster_data:
                 if st.button("🗓️ Calendar PDF", use_container_width=True):
                     try:
-                        import weasyprint
                         cal_first_day = date(2000 + int(mmyy[2:]), int(mmyy[:2]), 1)
                         cal_num_days = calendar.monthrange(2000 + int(mmyy[2:]), int(mmyy[:2]))[1]
                         cal_start_pad = cal_first_day.weekday()
                         month_label = cal_first_day.strftime("%B %Y")
                         dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-                        css_lines = [
-                            "body { font-family: Arial, sans-serif; background: white; color: black; margin: 20px; }",
-                            "h2 { text-align: center; margin-bottom: 16px; }",
-                            "table { width: 100%; border-collapse: collapse; table-layout: fixed; }",
-                            "th { background: #333; color: white; padding: 8px; text-align: center; font-size: 12px; }",
-                            "td { border: 1px solid #ccc; vertical-align: top; height: 110px; padding: 6px; width: 14.28%; }",
-                            ".day-num { font-weight: bold; font-size: 13px; display: block; margin-bottom: 4px; }",
-                            ".duty-item { font-size: 9px; background: #1a73e8; color: white; border-radius: 4px; padding: 2px 5px; margin-bottom: 3px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }",
-                            ".standby-item { font-size: 10px; color: #333; display: block; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
-                        ]
-                        css = " ".join(css_lines)
+                        css = (
+                            "@page { size: A4 landscape; margin: 1cm; }"
+                            "body { font-family: Helvetica, Arial, sans-serif; background: white; color: black; margin: 0; }"
+                            "h2 { text-align: center; margin-bottom: 6px; font-size: 15px; }"
+                            
+                            # Force the table to allow overflow instead of shrinking text
+                            "table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 2px solid #555; -pdf-keep-in-frame-mode: overflow; }"
+                            
+                            "th { background-color: #333; color: white; padding: 5px 0; text-align: center; font-size: 13px; font-weight: bold; }"
+                            "td { border: 1px solid #aaa; vertical-align: top; height: 100px; padding: 2px; width: 14.28%; -pdf-keep-in-frame-mode: overflow; }"
+                            
+                            ".day-num { font-weight: bold; font-size: 15px; display: block; margin: 2px 0 2px 1px; color: #111; }"
+                            
+                            # We add -pdf-keep-in-frame-mode here as well and nowrap to ensure font-size is respected
+                            ".duty-item { font-size: 12px; background-color: #1a73e8; color: white; border-radius: 3px; padding: 1px 3px; display: block; font-weight: bold; line-height: 1.2; margin: 0 1px 1px 1px; white-space: nowrap; -pdf-keep-in-frame-mode: overflow; }"
+                            ".standby-item { font-size: 12px; color: #222; display: block; line-height: 1.2; margin: 0 1px 0 1px; white-space: nowrap; -pdf-keep-in-frame-mode: overflow; }"
+                        )
 
                         cal_html = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>" + css + "</style></head><body>"
-                        cal_html += "<h2>" + month_label + " Duty Roster</h2><table><thead><tr>"
+                        cal_html += "<h2>" + month_label + " Duty Roster</h2>"
+                        cal_html += "<table><thead><tr>"
                         for d in dow:
                             cal_html += "<th>" + d + "</th>"
                         cal_html += "</tr></thead><tbody><tr>"
@@ -941,11 +947,14 @@ if role == 'Admin':
                                 cal_html += "</tr><tr>"
                                 col_idx = 0
                             info = roster_data.get(str(day), {"duty": [], "standby": []})
-                            cal_html += '<td><span class="day-num">' + str(day) + "</span>"
+                            cal_html += "<td><span class='day-num'>" + str(day) + "</span>"
                             for n in info["duty"]:
-                                cal_html += '<span class="duty-item">' + n + "</span>"
+                                # truncate long names to avoid overflow
+                                display_name = n if len(n) <= 20 else n[:19] + "."
+                                cal_html += "<span class='duty-item'>" + display_name + "</span>"
                             for n in info["standby"]:
-                                cal_html += '<span class="standby-item">' + n + "</span>"
+                                display_name = n if len(n) <= 20 else n[:19] + "."
+                                cal_html += "<span class='standby-item'>" + display_name + "</span>"
                             cal_html += "</td>"
                             col_idx += 1
 
@@ -954,9 +963,11 @@ if role == 'Admin':
                             col_idx += 1
                         cal_html += "</tr></tbody></table></body></html>"
 
-                        pdf_bytes = weasyprint.HTML(string=cal_html).write_pdf(
-                            stylesheets=[weasyprint.CSS(string="@page { size: A4 landscape; margin: 1cm; }")]
-                        )
+                        from xhtml2pdf import pisa
+                        import io
+                        pdf_buffer = io.BytesIO()
+                        pisa.CreatePDF(cal_html, dest=pdf_buffer)
+                        pdf_bytes = pdf_buffer.getvalue()
                         st.download_button(
                             label="⬇️ Download Calendar PDF",
                             data=pdf_bytes,
@@ -996,7 +1007,8 @@ if role == 'Admin':
                                 "?format=pdf"
                                 "&gid=" + str(sheet_gid_dl) +
                                 "&portrait=false"
-                                "&fitw=true"
+                                "&fitw=true"    # fit to width
+                                "&fzr=true"     # fit rows to page
                                 "&gridlines=true"
                                 "&r1=0&c1=0&r2=" + str(last_name_row_dl) + "&c2=45"
                                 "&ir=false&ic=false"
