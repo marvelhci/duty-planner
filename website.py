@@ -362,7 +362,8 @@ if role == 'Admin':
 
         # main interface
 
-        mmyy = st.text_input("Month/Year (MMYY) to plan", value="0126")
+        _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
+        mmyy = st.selectbox("Month/Year (MMYY) to plan", options=_opts, key="plan_mmyy")
         spreadsheet_name = f"MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
@@ -672,7 +673,8 @@ if role == 'Admin':
 
     if admin_page == "✏️ Editing":
 
-        mmyy = st.text_input("Month/Year (MMYY) to edit", value="0126")
+        _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
+        mmyy = st.selectbox("Month/Year (MMYY) to edit", options=_opts, key="edit_mmyy")
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
@@ -1310,7 +1312,8 @@ if role == 'User':
         if 'hist_preferences' not in st.session_state:
             st.session_state.hist_preferences = []
 
-        view_mmyy = st.text_input("Month (MMYY)", value="0126")
+        _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
+        view_mmyy = st.selectbox("Month (MMYY)", options=_opts, key="view_mmyy")
         spreadsheet_name = "MASTER SHEET"
 
         try:
@@ -1434,26 +1437,30 @@ if role == 'User':
             final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
 
             if st.form_submit_button("Save Changes"):
-                with st.spinner("💾 Writing to Google Sheets..."):
-                    success, logs = user_engine.update_user_data(
-                        client, spreadsheet_name, view_mmyy, 
-                        selected_name, selected_partner, 
-                        driving_status, final_constraints, final_preferences, status_string
-                    )
-                    if success:
-                        st.success("Preferences updated successfully!")
-                        # clear session state on success
-                        st.session_state.hist_constraints = []
-                        st.session_state.hist_preferences = []
-                        if "user_defaults" in st.session_state: 
-                            del st.session_state.user_defaults
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Failed to update: {logs[0]}")
+                if not selected_name:
+                    st.error("❌ Please select your name before saving.")
+                else:
+                    with st.spinner("💾 Writing to Google Sheets..."):
+                        success, logs = user_engine.update_user_data(
+                            client, spreadsheet_name, view_mmyy, 
+                            selected_name, selected_partner, 
+                            driving_status, final_constraints, final_preferences, status_string
+                        )
+                        if success:
+                            st.success("Preferences updated successfully!")
+                            # clear session state on success
+                            st.session_state.hist_constraints = []
+                            st.session_state.hist_preferences = []
+                            if "user_defaults" in st.session_state: 
+                                del st.session_state.user_defaults
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Failed to update: {logs[0]}")
 
     if user_page == "🗓️ Viewer":
 
-        mmyy = st.text_input("Month/Year (MMYY) to view", value="0126")
+        _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
+        mmyy = st.selectbox("Month/Year (MMYY) to view", options=_opts, key="view_mmyy2")
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
