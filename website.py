@@ -62,18 +62,18 @@ def get_personal_drive_service():
 # CACHED DATA FETCHERS
 # --------------------------------------------------
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_sheet_data(_client, spreadsheet_name, sheet_name):
     """Cached sheet reader — TTL 5 mins."""
     sh = _client.open(spreadsheet_name)
     return sh.worksheet(sheet_name).get_all_values()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_namelist(_client, spreadsheet_name):
     """Cached namelist fetch."""
     return user_engine.get_namelist(_client, spreadsheet_name)
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
     """Cached Drive file ID lookup — TTL 10 mins."""
     gs_query = (
@@ -152,9 +152,8 @@ def logout():
 if not st.session_state['logged_in']:
     st.title("🚀 Duty Planner")
     st.write("Please select your access level to continue.")
-
+    
     st.subheader("User")
-    st.write("Input your constraints")
     user_pwd = st.text_input("Enter Password", type="password", key="user_password")
     if st.button("Login as User", use_container_width=True):
         if user_pwd == USER_PASSWORD:
@@ -165,7 +164,6 @@ if not st.session_state['logged_in']:
             st.error("❌ Incorrect Password")
 
     st.subheader("Admin")
-    st.write("Plan rostering")
     admin_pwd = st.text_input("Enter Password", type="password", key="admin_password")
     if st.button("Login as Admin", use_container_width=True):
         if admin_pwd == ADMIN_PASSWORD:
