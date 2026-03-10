@@ -228,7 +228,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     SCALE = 1000
 
     weekday_points = point_allocations.get('weekday_points', 1.0)
-    friday_points = point_allocations.get('friday_points', 1.5)
+    friday_points = point_allocations.get('friday_points', 1.0)
     sat_sun_points = point_allocations.get('weekend_points', 2.0)
     holiday_points = point_allocations.get('holiday_points', 2.0)
 
@@ -350,6 +350,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
     # last month weekend and duties
     weekend_workers_last_month = set()
+    friday_workers_last_month = set()
     duties_last_month = defaultdict(list)
     if isinstance(last_month_df, pd.DataFrame):
         _, last_num_days = calendar.monthrange(year_old, month_old)
@@ -366,6 +367,8 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
                     if last_date.weekday() in [5, 6]:
                         weekend_workers_last_month.add(name)
+                    if last_date.weekday() == 4:
+                        friday_workers_last_month.add(name)
 
     # --------------------------------------------------
     # SOFT CONSTRAINT SETUP
@@ -534,6 +537,16 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
                 current_date = datetime(year, month, current_day_num)
 
                 if current_date.weekday() in [5, 6]:
+                    if (r, c) in x:
+                        model.Add(x[(r, c)] == 0)
+
+        if staff_name in friday_workers_last_month:
+            for c in range(date_start_col, date_end_col + 1):
+                if (r, c) in fixed_duties:
+                    continue
+                current_day_num = c - date_start_col + 1
+                current_date = datetime(year, month, current_day_num)
+                if current_date.weekday() == 4:  # Friday
                     if (r, c) in x:
                         model.Add(x[(r, c)] == 0)
 
@@ -716,11 +729,11 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
 
             adj = 0
             if "ADD 1X WD" in change_text:    adj = (1 / last_month_scale)
-            elif "ADD 1X F" in change_text:   adj = (1.5 / last_month_scale)
+            elif "ADD 1X F" in change_text:   adj = (1 / last_month_scale)
             elif "ADD 1X WE" in change_text:  adj = (2 / last_month_scale)
             elif "ADD 1X H" in change_text: adj = (2 / last_month_scale)
             elif "MINUS 1X WD" in change_text:    adj = -(1 / last_month_scale)
-            elif "MINUS 1X F" in change_text:   adj = -(1.5 / last_month_scale)
+            elif "MINUS 1X F" in change_text:   adj = -(1 / last_month_scale)
             elif "MINUS 1X WE" in change_text:  adj = -(2 / last_month_scale)
             elif "MINUS 1X H" in change_text: adj = -(2 / last_month_scale)
 
@@ -922,7 +935,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     for d in dates_new:
         day_name = d.day_name()[:3].lower()
         # holiday points
-        p = 2.0 if (d.day in holiday_days_new or day_name in ['sat', 'sun']) else (1.5 if day_name == 'fri' else 1.0)
+        p = 2.0 if (d.day in holiday_days_new or day_name in ['sat', 'sun']) else (1.0 if day_name == 'fri' else 1.0)
         total_points_next_month += (p * 2) # Two people assigned per day
 
     # distribute based on current offset (Higher points today = Lower priority tomorrow)

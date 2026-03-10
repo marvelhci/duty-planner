@@ -12,6 +12,9 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import requests as http_requests
 
+ADMIN_PASSWORD = "password"
+USER_PASSWORD = "weapons"
+
 st.set_page_config(page_title="Duty Planner", layout="wide")
 
 SCOPES = [
@@ -137,9 +140,6 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
-
-ADMIN_PASSWORD = "password"
-USER_PASSWORD = "weapons"
 
 # --------------------------------------------------
 # LOGIN
@@ -271,8 +271,8 @@ if role == 'Admin':
             st.session_state["weekday_slider"] = 1.0
             st.session_state["weekday_input"] = 1.0
         if "friday_slider" not in st.session_state:
-            st.session_state["friday_slider"] = 1.5
-            st.session_state["friday_input"] = 1.5
+            st.session_state["friday_slider"] = 1.0
+            st.session_state["friday_input"] = 1.0
         if "weekend_slider" not in st.session_state:
             st.session_state["weekend_slider"] = 2.0
             st.session_state["weekend_input"] = 2.0
@@ -694,7 +694,7 @@ if role == 'Admin':
         # point allocations — use planning page slider values if available, else defaults
         point_allocations = {
             "weekday_points": st.session_state.get("weekday_slider", 1.0),
-            "friday_points": st.session_state.get("friday_slider", 1.5),
+            "friday_points": st.session_state.get("friday_slider", 1.0),
             "weekend_points": st.session_state.get("weekend_slider", 2.0),
             "holiday_points": st.session_state.get("holiday_slider", 2.0),
         }
@@ -732,130 +732,153 @@ if role == 'Admin':
             elif sheet_used == "C":
                 st.info("ℹ️ Showing draft constraints — roster not yet finalised")
 
-            # 1. Date Math & Setup
-            first_day = date(curr_y, curr_m, 1)
-            start_padding = (first_day.weekday()) % 7 
-            num_days = calendar.monthrange(curr_y, curr_m)[1]
-            days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            # segmented control: Calendar vs Summary
+            cal_view_mode = st.segmented_control(
+                "View", options=["Calendar", "Summary"], default="Calendar", key="edit_cal_mode"
+            )
 
-            # 2. Hybrid CSS: Pill for Duty, Plain for Standby
-            st.markdown("""
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+            if cal_view_mode == 'Summary':
+                year_str_sum = str(2000 + int(mmyy[2:]))
+                try:
+                    yr_cache_key = f'yr_summary_{year_str_sum}'
+                    if yr_cache_key not in st.session_state:
+                        yr_raw = fetch_sheet_data(client, spreadsheet_name, year_str_sum)
+                        st.session_state[yr_cache_key] = yr_raw
+                    yr_raw = st.session_state[yr_cache_key]
+                    if yr_raw:
+                        yr_df = pd.DataFrame(yr_raw)
+                        st.dataframe(yr_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning(f'⚠️ No data found in {year_str_sum} sheet.')
+                except Exception as e:
+                    st.error(f'❌ Could not load year sheet: {e}')
 
-                    .cal-container {
-                        border: 1px solid #444;
-                        border-radius: 15px;
-                        overflow: hidden; 
-                        margin-top: 10px;
-                        font-family: 'Source Sans Pro', sans-serif !important;
-                    }
+            if cal_view_mode == 'Calendar':
+
+                # 1. Date Math & Setup
+                first_day = date(curr_y, curr_m, 1)
+                start_padding = (first_day.weekday()) % 7 
+                num_days = calendar.monthrange(curr_y, curr_m)[1]
+                days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+                # 2. Hybrid CSS: Pill for Duty, Plain for Standby
+                st.markdown("""
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+                        .cal-container {
+                            border: 1px solid #444;
+                            border-radius: 15px;
+                            overflow: hidden; 
+                            margin-top: 10px;
+                            font-family: 'Source Sans Pro', sans-serif !important;
+                        }
                     
-                    .cal-table { 
-                        width: 100%; 
-                        border-collapse: collapse; 
-                        table-layout: fixed;
-                        background-color: #262730; /* Darker background to make white text/blue pills pop */
-                    }
+                        .cal-table { 
+                            width: 100%; 
+                            border-collapse: collapse; 
+                            table-layout: fixed;
+                            background-color: #262730; /* Darker background to make white text/blue pills pop */
+                        }
 
-                    .cal-th { 
-                        background-color: #000000; 
-                        color: #ffffff; 
-                        padding: 12px; 
-                        text-align: center; 
-                        border-bottom: 1px solid #444;
-                        font-weight: 600 !important;
-                    }
+                        .cal-th { 
+                            background-color: #000000; 
+                            color: #ffffff; 
+                            padding: 12px; 
+                            text-align: center; 
+                            border-bottom: 1px solid #444;
+                            font-weight: 600 !important;
+                        }
 
-                    .cal-td { 
-                        vertical-align: top; 
-                        border: 0.5px solid rgba(255, 255, 255, 0.1); 
-                        height: 125px; 
-                        padding: 10px; 
-                    }
+                        .cal-td { 
+                            vertical-align: top; 
+                            border: 0.5px solid rgba(255, 255, 255, 0.1); 
+                            height: 125px; 
+                            padding: 10px; 
+                        }
 
-                    .day-num { 
-                        font-weight: 700 !important; 
-                        font-size: 1rem; 
-                        margin-bottom: 10px; 
-                        display: block;
-                        color: #ffffff;
-                    }
+                        .day-num { 
+                            font-weight: 700 !important; 
+                            font-size: 1rem; 
+                            margin-bottom: 10px; 
+                            display: block;
+                            color: #ffffff;
+                        }
 
-                    /* 🚨 DUTY: The "Pill" Style */
-                    .duty-item { 
-                        font-family: 'Source Sans Pro', sans-serif !important;
-                        font-size: 10px; 
-                        line-height: 1.2; 
-                        margin-bottom: 6px; 
-                        font-weight: 600 !important;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        display: block;
-                        padding: 4px 8px;
-                        border-radius: 6px;
-                        background-color: #007bff; 
-                        border: 1px solid #0056b3;
-                        color: white !important;
-                    }
+                        /* 🚨 DUTY: The "Pill" Style */
+                        .duty-item { 
+                            font-family: 'Source Sans Pro', sans-serif !important;
+                            font-size: 10px; 
+                            line-height: 1.2; 
+                            margin-bottom: 6px; 
+                            font-weight: 600 !important;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            display: block;
+                            padding: 4px 8px;
+                            border-radius: 6px;
+                            background-color: #007bff; 
+                            border: 1px solid #0056b3;
+                            color: white !important;
+                        }
                     
-                    /* ⏳ STANDBY: Plain White Text Style */
-                    .standby-item { 
-                        font-family: 'Source Sans Pro', sans-serif !important;
-                        font-size: 11px; 
-                        line-height: 1.4; 
-                        margin-bottom: 3px; 
-                        font-weight: 400 !important;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        display: block;
-                        color: white !important; /* Plain white text, no background */
-                        padding-left: 2px;
-                    }
-                </style>
-            """, unsafe_allow_html=True)
+                        /* ⏳ STANDBY: Plain White Text Style */
+                        .standby-item { 
+                            font-family: 'Source Sans Pro', sans-serif !important;
+                            font-size: 11px; 
+                            line-height: 1.4; 
+                            margin-bottom: 3px; 
+                            font-weight: 400 !important;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            display: block;
+                            color: white !important; /* Plain white text, no background */
+                            padding-left: 2px;
+                        }
+                    </style>
+                """, unsafe_allow_html=True)
 
-            # 3. Build Table
-            html_table = '<div class="cal-container"><table class="cal-table"><thead><tr>'
-            for day_name in days_of_week:
-                html_table += f'<th class="cal-th">{day_name}</th>'
-            html_table += '</tr></thead><tbody><tr>'
+                # 3. Build Table
+                html_table = '<div class="cal-container"><table class="cal-table"><thead><tr>'
+                for day_name in days_of_week:
+                    html_table += f'<th class="cal-th">{day_name}</th>'
+                html_table += '</tr></thead><tbody><tr>'
 
-            for i in range(start_padding):
-                html_table += '<td class="cal-td"></td>'
+                for i in range(start_padding):
+                    html_table += '<td class="cal-td"></td>'
 
-            current_col = start_padding
+                current_col = start_padding
 
-            for day in range(1, num_days + 1):
-                if current_col == 7:
-                    html_table += '</tr><tr>'
-                    current_col = 0
+                for day in range(1, num_days + 1):
+                    if current_col == 7:
+                        html_table += '</tr><tr>'
+                        current_col = 0
                 
-                day_info = roster_data.get(str(day), {"duty": [], "standby": []})
+                    day_info = roster_data.get(str(day), {"duty": [], "standby": []})
                 
-                cell_content = f'<span class="day-num">{day}</span>'
+                    cell_content = f'<span class="day-num">{day}</span>'
                 
-                # Duty names get the blue pill
-                for d_name in day_info["duty"]:
-                    cell_content += f'<div class="duty-item" title="Duty: {d_name}">{d_name}</div>'
+                    # Duty names get the blue pill
+                    for d_name in day_info["duty"]:
+                        cell_content += f'<div class="duty-item" title="Duty: {d_name}">{d_name}</div>'
                 
-                # Standby names get plain white text
-                for s_name in day_info["standby"]:
-                    cell_content += f'<div class="standby-item" title="Standby: {s_name}">{s_name}</div>'
+                    # Standby names get plain white text
+                    for s_name in day_info["standby"]:
+                        cell_content += f'<div class="standby-item" title="Standby: {s_name}">{s_name}</div>'
                 
-                html_table += f'<td class="cal-td">{cell_content}</td>'
-                current_col += 1
+                    html_table += f'<td class="cal-td">{cell_content}</td>'
+                    current_col += 1
 
-            while current_col < 7:
-                html_table += '<td class="cal-td"></td>'
-                current_col += 1
+                while current_col < 7:
+                    html_table += '<td class="cal-td"></td>'
+                    current_col += 1
 
-            html_table += '</tr></tbody></table></div>'
+                html_table += '</tr></tbody></table></div>'
 
-            st.markdown(html_table, unsafe_allow_html=True)
-
+                st.markdown(html_table, unsafe_allow_html=True)
+    
         # --------------------------------------------------
         # MANUAL ADJUSTMENTS TABLE
         # --------------------------------------------------
@@ -1003,15 +1026,14 @@ if role == 'Admin':
                                     last_name_row_dl = ri
 
                             export_url_dl = (
-                                "https://docs.google.com/spreadsheets/d/" + sid_dl + "/export"
-                                "?format=pdf"
-                                "&gid=" + str(sheet_gid_dl) +
-                                "&portrait=false"
-                                "&fitw=true"    # fit to width
-                                "&fzr=true"     # fit rows to page
-                                "&gridlines=true"
-                                "&r1=0&c1=0&r2=" + str(last_name_row_dl) + "&c2=45"
-                                "&ir=false&ic=false"
+                                f"https://docs.google.com/spreadsheets/d/{sid_dl}/export"
+                                f"?format=pdf"
+                                f"&gid={sheet_gid_dl}"
+                                f"&portrait=false"
+                                f"&scale=4"
+                                f"&gridlines=true"
+                                f"&r1=0&c1=0&r2={last_name_row_dl}&c2=45"
+                                f"&ir=false&ic=false"
                             )
 
                             info_dl = st.secrets["personal_account"]
@@ -1337,16 +1359,20 @@ if role == 'User':
         names_list = fetch_namelist(client, spreadsheet_name)
         st.subheader("Step 1: Select Your Name")
         selected_name = st.selectbox("", options=[""] + names_list)
+        if selected_name:
+            st.session_state["user_selected_name"] = selected_name
 
         defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
 
         if selected_name:
-            if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
+            if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != (selected_name, view_mmyy):
                 with st.spinner(f"📦 Retrieving current records for {selected_name}..."):
                     existing = user_engine.get_user_current_data(client, spreadsheet_name, view_mmyy, selected_name)
-                    if existing:
+                    if existing is None:
+                        st.error(f"❌ Could not load data for {selected_name} — check the C sheet exists for {view_mmyy}")
+                    elif existing:
                         st.session_state.user_defaults = existing
-                        st.session_state.last_fetched_user = selected_name
+                        st.session_state.last_fetched_user = (selected_name, view_mmyy)
                         st.session_state.hist_constraints = set(user_engine.parse_string_to_days(existing.get('constraints', ""), view_mmyy))
                         st.session_state.hist_preferences = set(user_engine.parse_string_to_days(existing.get('preferences', ""), view_mmyy))
                         st.toast(f"Loaded data for {selected_name}")
@@ -1592,6 +1618,20 @@ if role == 'User':
                         color: white !important; /* Plain white text, no background */
                         padding-left: 2px;
                     }
+                        
+                    .standby-highlight { 
+                        font-family: 'Source Sans Pro', sans-serif !important;
+                        font-size: 11px; 
+                        line-height: 1.4; 
+                        margin-bottom: 3px; 
+                        font-weight: 700 !important;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        display: block;
+                        color: #e67e22 !important;
+                        padding-left: 2px;
+                    }
                 </style>
             """, unsafe_allow_html=True)
 
@@ -1606,6 +1646,8 @@ if role == 'User':
 
             current_col = start_padding
 
+            _highlight = st.session_state.get("user_selected_name", "")
+            
             for day in range(1, num_days + 1):
                 if current_col == 7:
                     html_table += '</tr><tr>'
@@ -1617,11 +1659,13 @@ if role == 'User':
                 
                 # Duty names get the blue pill
                 for d_name in day_info["duty"]:
-                    cell_content += f'<div class="duty-item" title="Duty: {d_name}">{d_name}</div>'
+                    _duty_style = 'background:#e67e22;' if d_name == _highlight else ''
+                    cell_content += f'<div class="duty-item" style="{_duty_style}" title="Duty: {d_name}">{d_name}</div>'
                 
                 # Standby names get plain white text
                 for s_name in day_info["standby"]:
-                    cell_content += f'<div class="standby-item" title="Standby: {s_name}">{s_name}</div>'
+                    _sb_class = 'standby-highlight' if s_name == _highlight else 'standby-item'
+                    cell_content += f'<div class="{_sb_class}" title="Standby: {s_name}">{s_name}</div>'
                 
                 html_table += f'<td class="cal-td">{cell_content}</td>'
                 current_col += 1
