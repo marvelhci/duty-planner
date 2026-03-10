@@ -1365,14 +1365,12 @@ if role == 'User':
         defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
 
         if selected_name:
-            if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != (selected_name, view_mmyy):
+            if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
                 with st.spinner(f"📦 Retrieving current records for {selected_name}..."):
                     existing = user_engine.get_user_current_data(client, spreadsheet_name, view_mmyy, selected_name)
-                    if existing is None:
-                        st.error(f"❌ Could not load data for {selected_name} — check the C sheet exists for {view_mmyy}")
-                    elif existing:
+                    if existing:
                         st.session_state.user_defaults = existing
-                        st.session_state.last_fetched_user = (selected_name, view_mmyy)
+                        st.session_state.last_fetched_user = selected_name
                         st.session_state.hist_constraints = set(user_engine.parse_string_to_days(existing.get('constraints', ""), view_mmyy))
                         st.session_state.hist_preferences = set(user_engine.parse_string_to_days(existing.get('preferences', ""), view_mmyy))
                         st.toast(f"Loaded data for {selected_name}")
