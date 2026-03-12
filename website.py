@@ -467,6 +467,38 @@ if role == 'Admin':
                             st.session_state['ranges'] = ranges
                             st.session_state['active_sh_name'] = sh.title
 
+                            # if the next month falls in a new year, duplicate the
+                            # current year's summary sheet and update it for the new year
+                            if curr_m == 12:
+                                curr_year_full = 2000 + curr_y
+                                next_year_full = curr_year_full + 1
+                                curr_year_str = str(curr_year_full)
+                                next_year_str = str(next_year_full)
+
+                                with st.spinner(f"📅 Creating {next_year_str} sheet..."):
+                                    try:
+                                        # check if the new year sheet already exists
+                                        existing_names = [ws.title for ws in sh.worksheets()]
+                                        if next_year_str in existing_names:
+                                            st.info(f"ℹ️ Sheet '{next_year_str}' already exists — skipping duplication.")
+                                        else:
+                                            # find and duplicate the current year sheet
+                                            curr_year_ws = sh.worksheet(curr_year_str)
+                                            all_sheets = sh.worksheets()
+                                            last_index = len(all_sheets)
+                                            new_year_ws = sh.duplicate_sheet(
+                                                curr_year_ws.id,
+                                                insert_sheet_index=last_index,
+                                                new_sheet_name=next_year_str
+                                            )
+                                            # update the year label cell
+                                            new_year_ws.update_acell('BM73', next_year_full)
+                                            st.success(f"✅ Created '{next_year_str}' sheet from '{curr_year_str}'!")
+                                    except gspread.exceptions.WorksheetNotFound:
+                                        st.warning(f"⚠️ Sheet '{curr_year_str}' not found — skipping year sheet creation.")
+                                    except Exception as e:
+                                        st.warning(f"⚠️ Could not create {next_year_str} sheet: {e}")
+
                             st.success("✅ Optimisation Successful!")
                             state = "complete"
                         else:
