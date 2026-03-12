@@ -1,19 +1,6 @@
-import gspread
 from datetime import date
 
-def get_namelist(client, spreadsheet_name):
-    """Fetches the list of names from the 'Namelist' tab."""
-    try:
-        sh = client.open(spreadsheet_name)
-        ws = sh.worksheet("Namelist")
-        records = ws.get_all_records()
-        return [r['NAME'] for r in records if r.get('NAME')]
-    except Exception as e:
-        print(f"Error fetching namelist: {e}")
-        return []
-
 def get_person_driving_status(p_ws, name, nl_ws=None):
-    """Helper to find any person's driving status, preferring Namelist sheet."""
     if not name or name == "None": return ""
     if nl_ws:
         try:
@@ -32,7 +19,6 @@ def get_person_driving_status(p_ws, name, nl_ws=None):
             return "NON-DRIVER"
 
 def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
-    """FETCH PREVIOUS DATA: Scans sheets to pre-fill the form."""
     try:
         sh = client.open(spreadsheet_name)
         p_ws = sh.worksheet("Partners")
@@ -174,7 +160,6 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         return False, [f"❌ Error: {str(e)}"]
     
 def parse_string_to_days(day_string, month_year_str):
-        """Converts '1, 2' string into a list of date objects for the calendar memory."""
         if not day_string: return []
         days = []
         mm = int(month_year_str[:2])
@@ -187,7 +172,6 @@ def parse_string_to_days(day_string, month_year_str):
         return days
 
 def format_date_list(history_collection):
-        """Safely converts a collection of dates OR ints into a sorted string."""
         day_nums = set()
         for item in history_collection:
             if hasattr(item, 'day'):
@@ -198,10 +182,6 @@ def format_date_list(history_collection):
         return ", ".join(map(str, sorted(list(day_nums))))
 
 def calendar_view(client, spreadsheet_name, mmyy):
-    """
-    Parses the horizontal planned sheet into a dictionary.
-    Prioritizes 'MMYYD' sheet, falls back to 'MMYYC', else returns error.
-    """
     try:
         sh = client.open(spreadsheet_name)
         

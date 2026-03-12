@@ -97,10 +97,6 @@ def archive_source_sheet(client, spreadsheet_name, mmyy, folder_id, personal_dri
     return archive_filename
 
 def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ranges):
-    """
-    Creates the template for the next month, formats the header,
-    and hides columns for days that do not exist in that month.
-    """
     sh = client.open(spreadsheet_name)
     
     # calculate next month MMYY

@@ -27,7 +27,6 @@ SCOPES = [
 # --------------------------------------------------
 
 def get_gspread_auth():
-    """Service account authentication for Sheets (gspread client only)."""
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
@@ -45,10 +44,6 @@ def get_gspread_auth():
         st.stop()
 
 def get_personal_drive_service():
-    """Builds a Drive service authenticated as your personal Google account.
-    Requires [personal_account] section in secrets.toml with:
-        token, refresh_token, client_id, client_secret, token_uri
-    """
     info = st.secrets["personal_account"]
     creds = Credentials(
         token=info["token"],
@@ -67,18 +62,22 @@ def get_personal_drive_service():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_sheet_data(_client, spreadsheet_name, sheet_name):
-    """Cached sheet reader — TTL 5 mins."""
     sh = _client.open(spreadsheet_name)
     return sh.worksheet(sheet_name).get_all_values()
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_namelist(_client, spreadsheet_name):
-    """Cached namelist fetch."""
-    return user_engine.get_namelist(_client, spreadsheet_name)
+    try:
+        sh = _client.open(spreadsheet_name)
+        ws = sh.worksheet("Namelist")
+        records = ws.get_all_records()
+        return [r['NAME'] for r in records if r.get('NAME')]
+    except Exception as e:
+        print(f"Error fetching namelist: {e}")
+        return []
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
-    """Cached Drive file ID lookup — TTL 10 mins."""
     gs_query = (
         f"name = '{spreadsheet_name}' "
         f"and mimeType = 'application/vnd.google-apps.spreadsheet' "
@@ -94,7 +93,6 @@ def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
 # --------------------------------------------------
 
 def convert_if_excel(client, spreadsheet_name):
-    """Uses personal Drive account to find/convert files so storage hits personal quota."""
     personal_drive = get_personal_drive_service()
     folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
 
