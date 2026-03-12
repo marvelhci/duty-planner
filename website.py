@@ -492,6 +492,7 @@ if role == 'Admin':
                                                 new_sheet_name=next_year_str
                                             )
                                             # update the year label cell
+                                            new_year_ws.update_acell('BM73', '')
                                             new_year_ws.update_acell('BM73', next_year_full)
                                             st.success(f"✅ Created '{next_year_str}' sheet from '{curr_year_str}'!")
                                     except gspread.exceptions.WorksheetNotFound:
