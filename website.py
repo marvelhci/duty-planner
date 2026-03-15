@@ -12,8 +12,7 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import requests as http_requests
 
-ADMIN_PASSWORD = "password"
-USER_PASSWORD = "weapons"
+# Passwords now stored in CONFIG sheet
 
 st.set_page_config(page_title="Duty Planner", layout="wide")
 
@@ -92,6 +91,46 @@ def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
 # CONVERT FILES FROM .XLSX TO SHEETS
 # --------------------------------------------------
 
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_config(_client, spreadsheet_name):
+    """Reads CONFIG sheet and returns constraint + password settings as a dict."""
+    try:
+        sh = _client.open(spreadsheet_name)
+        ws = sh.worksheet("CONFIG")
+        rows = ws.get_all_values()
+        cfg = {}
+        pwd = {}
+        in_passwords = False
+        for row in rows:
+            if not any(row):
+                continue
+            if row[0].strip().upper() == "KEY":
+                in_passwords = True
+                continue
+            if in_passwords:
+                key = row[0].strip()
+                val = row[1].strip() if len(row) > 1 else ""
+                if key:
+                    pwd[key] = val
+            else:
+                cid = row[0].strip()
+                if not cid or cid.upper() == "CONSTRAINT_ID":
+                    continue
+                cfg[cid] = {
+                    "label":        row[1].strip() if len(row) > 1 else cid,
+                    "type":         row[2].strip() if len(row) > 2 else "",
+                    "active":       row[3].strip().upper() == "TRUE" if len(row) > 3 else True,
+                    "draft_active": row[4].strip().upper() == "TRUE" if len(row) > 4 else True,
+                    "param":        row[5].strip() if len(row) > 5 else "",
+                    "param_label":  row[6].strip() if len(row) > 6 else "",
+                    "description":  row[7].strip() if len(row) > 7 else "",
+                }
+        cfg["_passwords"] = pwd
+        return cfg
+    except Exception as e:
+        return {"_passwords": {"admin_password": "password", "user_password": "weapons"}, "_error": str(e)}
+
 def convert_if_excel(client, spreadsheet_name):
     personal_drive = get_personal_drive_service()
     folder_id = st.secrets["app_config"]["personal_drive_folder_id"]
@@ -150,11 +189,19 @@ def logout():
 if not st.session_state['logged_in']:
     st.title("🚀 Duty Planner")
     st.write("Please select your access level to continue.")
-    
+    try:
+        _login_client = get_gspread_auth()
+        _login_cfg = fetch_config(_login_client, "MASTER SHEET")
+        _admin_pw = _login_cfg.get("_passwords", {}).get("admin_password", "password")
+        _user_pw  = _login_cfg.get("_passwords", {}).get("user_password", "weapons")
+    except:
+        _admin_pw = "password"
+        _user_pw  = "weapons"
+
     st.subheader("User")
     user_pwd = st.text_input("Enter Password", type="password", key="user_password")
     if st.button("Login as User", use_container_width=True):
-        if user_pwd == USER_PASSWORD:
+        if user_pwd == _user_pw:
             st.session_state['logged_in'] = True
             st.session_state['user_role'] = 'User'
             st.rerun()
@@ -164,7 +211,7 @@ if not st.session_state['logged_in']:
     st.subheader("Admin")
     admin_pwd = st.text_input("Enter Password", type="password", key="admin_password")
     if st.button("Login as Admin", use_container_width=True):
-        if admin_pwd == ADMIN_PASSWORD:
+        if admin_pwd == _admin_pw:
             st.session_state['logged_in'] = True
             st.session_state['user_role'] = 'Admin'
             st.rerun()
@@ -225,18 +272,29 @@ if role == 'Admin':
 
         col_slider, col_input = st.sidebar.columns([3, 1])
 
+        # load CONFIG sheet once for this page
+        _cfg_client = get_gspread_auth()
+        sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
+
+        def _cfg_param(cid, fallback):
+            try:
+                v = sheet_cfg.get(cid, {}).get("param", "")
+                return type(fallback)(v) if v != "" else fallback
+            except:
+                return fallback
+
         if "S1_slider" not in st.session_state:
-            st.session_state["S1_slider"] = 100
-            st.session_state["S1_input"] = 100
+            _d = _cfg_param("SC1", 100)
+            st.session_state["S1_slider"] = _d; st.session_state["S1_input"] = _d
         if "S2_slider" not in st.session_state:
-            st.session_state["S2_slider"] = 60
-            st.session_state["S2_input"] = 60
+            _d = _cfg_param("SC2", 60)
+            st.session_state["S2_slider"] = _d; st.session_state["S2_input"] = _d
         if "S3_slider" not in st.session_state:
-            st.session_state["S3_slider"] = 10
-            st.session_state["S3_input"] = 10
+            _d = _cfg_param("SC3", 10)
+            st.session_state["S3_slider"] = _d; st.session_state["S3_input"] = _d
         if "S4_slider" not in st.session_state:
-            st.session_state["S4_slider"] = 400
-            st.session_state["S4_input"] = 400
+            _d = _cfg_param("SC4", 400)
+            st.session_state["S4_slider"] = _d; st.session_state["S4_input"] = _d
 
         with col_slider:
             s1_val = st.slider("Follow Pairings", 0, 500, key="S1_slider", on_change=update_input, args=("S1",), step=10)
@@ -253,12 +311,7 @@ if role == 'Admin':
             st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
             s4_manual = st.number_input("Label", 0, 500, key="S4_input", on_change=update_slider, args=("S4",), label_visibility="collapsed")
 
-        config = {
-            "S1": s1_val,
-            "S2": s2_val,
-            "S3": s3_val,
-            "S4": s4_val
-        }
+        config = sheet_cfg  # full constraint config from CONFIG sheet
 
         st.sidebar.markdown("---")
         st.sidebar.subheader("💯 Point Allocations")
@@ -306,17 +359,17 @@ if role == 'Admin':
         col_slider, col_input = st.sidebar.columns([3, 1])
 
         if "hard1_slider" not in st.session_state:
-            st.session_state["hard1_slider"] = 2
-            st.session_state["hard1_input"] = 2
+            _d = _cfg_param("HC1", 2)
+            st.session_state["hard1_slider"] = _d; st.session_state["hard1_input"] = _d
         if "hard5_slider" not in st.session_state:
-            st.session_state["hard5_slider"] = 3
-            st.session_state["hard5_input"] = 3
+            _d = _cfg_param("HC5", 3)
+            st.session_state["hard5_slider"] = _d; st.session_state["hard5_input"] = _d
         if "hard1s_slider" not in st.session_state:
-            st.session_state["hard1s_slider"] = 2
-            st.session_state["hard1s_input"] = 2
+            _d = _cfg_param("HC1S", 2)
+            st.session_state["hard1s_slider"] = _d; st.session_state["hard1s_input"] = _d
         if "hard2s_slider" not in st.session_state:
-            st.session_state["hard2s_slider"] = 2
-            st.session_state["hard2s_input"] = 2
+            _d = _cfg_param("HC2S", 2)
+            st.session_state["hard2s_slider"] = _d; st.session_state["hard2s_input"] = _d
         if "scalefactor_slider" not in st.session_state:
             st.session_state["scalefactor_slider"] = 4
             st.session_state["scalefactor_input"] = 4
@@ -357,6 +410,90 @@ if role == 'Admin':
             "scalefactor": scalefactor_val,
             "sbf_val": sbf_val
         }
+
+        # --------------------------------------------------
+        # CONSTRAINT PANEL
+        # --------------------------------------------------
+        st.markdown("---")
+        st.subheader("⚙️ Constraint Settings")
+
+        if "_error" in sheet_cfg:
+            st.warning(f"⚠️ Could not load CONFIG sheet: {sheet_cfg['_error']}. Using defaults.")
+
+        constraint_ids = [k for k in sheet_cfg.keys() if not k.startswith("_")]
+        if constraint_ids:
+            hard_constraints = {k: v for k, v in sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "hard"}
+            soft_constraints = {k: v for k, v in sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "soft"}
+
+            draft_updates = {}
+
+            with st.expander("🔒 Hard Constraints", expanded=False):
+                for cid, cv in hard_constraints.items():
+                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
+                    with col_tog:
+                        cur = cv.get("draft_active", cv.get("active", True))
+                        new_val = st.toggle("", value=cur, key=f"tog_{cid}")
+                        if new_val != cur:
+                            draft_updates[cid] = new_val
+                    with col_lbl:
+                        st.markdown(f"**{cv.get('label', cid)}**")
+                        if cv.get("param_label") and cv.get("param","") != "":
+                            st.caption(f"{cv['param_label']}: {cv['param']}")
+                    with col_desc:
+                        st.caption(cv.get("description", ""))
+
+            with st.expander("🔓 Soft Constraints", expanded=False):
+                for cid, cv in soft_constraints.items():
+                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
+                    with col_tog:
+                        cur = cv.get("draft_active", cv.get("active", True))
+                        new_val = st.toggle("", value=cur, key=f"tog_{cid}")
+                        if new_val != cur:
+                            draft_updates[cid] = new_val
+                    with col_lbl:
+                        st.markdown(f"**{cv.get('label', cid)}**")
+                        if cv.get("param_label") and cv.get("param","") != "":
+                            st.caption(f"{cv['param_label']}: {cv['param']}")
+                    with col_desc:
+                        st.caption(cv.get("description", ""))
+
+            if draft_updates:
+                try:
+                    _cfg_sh = get_gspread_auth().open("MASTER SHEET")
+                    _cfg_ws = _cfg_sh.worksheet("CONFIG")
+                    _cfg_rows = _cfg_ws.get_all_values()
+                    _upd = []
+                    for i, row in enumerate(_cfg_rows):
+                        if row and row[0].strip() in draft_updates:
+                            _upd.append({"range": f"E{i+1}", "values": [["TRUE" if draft_updates[row[0].strip()] else "FALSE"]]})
+                    if _upd:
+                        _cfg_ws.batch_update(_upd)
+                        fetch_config.clear()
+                except Exception as e:
+                    st.warning(f"⚠️ Could not save draft: {e}")
+
+            col_pub1, col_pub2 = st.columns([1, 3])
+            with col_pub1:
+                if st.button("✅ Publish Changes", use_container_width=True):
+                    try:
+                        _cfg_sh = get_gspread_auth().open("MASTER SHEET")
+                        _cfg_ws = _cfg_sh.worksheet("CONFIG")
+                        _cfg_rows = _cfg_ws.get_all_values()
+                        _pub = []
+                        for i, row in enumerate(_cfg_rows):
+                            if row and row[0].strip() in constraint_ids:
+                                draft_val = row[4].strip() if len(row) > 4 else "TRUE"
+                                _pub.append({"range": f"D{i+1}", "values": [[draft_val]]})
+                        if _pub:
+                            _cfg_ws.batch_update(_pub)
+                            fetch_config.clear()
+                            st.success("✅ Constraints published!")
+                    except Exception as e:
+                        st.error(f"❌ Publish failed: {e}")
+            with col_pub2:
+                st.caption("Publish copies all draft settings to live. The next optimiser run will use published settings.")
+        else:
+            st.caption("No CONFIG sheet found. Create a CONFIG tab in your spreadsheet to enable constraint management.")
 
         # main interface
 
@@ -701,6 +838,48 @@ if role == 'Admin':
                     except Exception as e:
                         st.error(f"❌ Failed to remove person: {e}")
                         st.code(traceback.format_exc())
+
+        # --------------------------------------------------
+        # DEV PANEL
+        # --------------------------------------------------
+        st.markdown("---")
+        with st.expander("🔧 Dev Access", expanded=False):
+            dev_pwd_input = st.text_input("Dev Password", type="password", key="dev_pwd_input")
+            DEV_PASSWORD = "devpass"
+            if dev_pwd_input == DEV_PASSWORD:
+                st.success("✅ Dev access granted")
+                st.subheader("🔑 Password Management")
+                with st.container(border=True):
+                    try:
+                        _dev_cfg = fetch_config(client, spreadsheet_name)
+                        _cur_admin = _dev_cfg.get("_passwords", {}).get("admin_password", "")
+                        _cur_user  = _dev_cfg.get("_passwords", {}).get("user_password", "")
+                    except:
+                        _cur_admin = ""
+                        _cur_user  = ""
+                    new_admin_pw = st.text_input("New Admin Password", value=_cur_admin, type="password", key="new_admin_pw")
+                    new_user_pw  = st.text_input("New User Password",  value=_cur_user,  type="password", key="new_user_pw")
+                    if st.button("💾 Save Passwords", use_container_width=True):
+                        try:
+                            _dev_sh   = client.open(spreadsheet_name)
+                            _dev_ws   = _dev_sh.worksheet("CONFIG")
+                            _dev_rows = _dev_ws.get_all_values()
+                            _pw_upd   = []
+                            for i, row in enumerate(_dev_rows):
+                                if row and row[0].strip() == "admin_password":
+                                    _pw_upd.append({"range": f"B{i+1}", "values": [[new_admin_pw]]})
+                                if row and row[0].strip() == "user_password":
+                                    _pw_upd.append({"range": f"B{i+1}", "values": [[new_user_pw]]})
+                            if _pw_upd:
+                                _dev_ws.batch_update(_pw_upd)
+                                fetch_config.clear()
+                                st.success("✅ Passwords updated!")
+                            else:
+                                st.warning("⚠️ Password rows not found in CONFIG sheet.")
+                        except Exception as e:
+                            st.error(f"❌ Failed to save passwords: {e}")
+            elif dev_pwd_input:
+                st.error("❌ Incorrect dev password")
 
     if admin_page == "✏️ Editing":
 

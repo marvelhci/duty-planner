@@ -217,10 +217,10 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     month_old = data_bundle["month_old"]
     
     # Sliders from Web UI
-    S1 = config.get('S1', 100)  # partners
-    S2 = config.get('S2', 60)  # branch
-    S3 = config.get('S3', 10)  # drivers
-    S4 = config.get('S4', 400)  # minimum 1x D
+    S1 = 100  # default, overridden by config below
+    S2 = 60
+    S3 = 10
+    S4 = 400
     SCALE = 1000
 
     weekday_points = point_allocations.get('weekday_points', 1.0)
@@ -235,6 +235,32 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     hard2s = model_constraints.get('hard2s', 2)
     scalefactor = model_constraints.get('scalefactor', 4)
     sbf_val = model_constraints.get('sbf_val', 2)
+
+    # read constraint config — active flags and param overrides
+    def cfg(cid, key, default):
+        if config and cid in config:
+            return config[cid].get(key, default)
+        return default
+
+    def cfg_bool(cid): return cfg(cid, "active", True)
+    def cfg_int(cid, default): 
+        try: return int(cfg(cid, "param", default)) if cfg(cid, "param", "") != "" else default
+        except: return default
+
+    hc1_on  = cfg_bool("HC1");  hard1  = cfg_int("HC1",  hard1)
+    hc2_on  = cfg_bool("HC2")
+    hc2f_on = cfg_bool("HC2F")
+    hc3_on  = cfg_bool("HC3")
+    hc4_on  = cfg_bool("HC4");  hard4  = cfg_int("HC4",  hard4)
+    hc5_on  = cfg_bool("HC5");  hard5  = cfg_int("HC5",  hard5)
+    hc6_on  = cfg_bool("HC6")
+    hc1s_on = cfg_bool("HC1S"); hard1s = cfg_int("HC1S", hard1s)
+    hc2s_on = cfg_bool("HC2S"); hard2s = cfg_int("HC2S", hard2s)
+    hc3s_on = cfg_bool("HC3S")
+    sc1_on  = cfg_bool("SC1");  S1 = cfg_int("SC1", S1)
+    sc2_on  = cfg_bool("SC2");  S2 = cfg_int("SC2", S2)
+    sc3_on  = cfg_bool("SC3");  S3 = cfg_int("SC3", S3)
+    sc4_on  = cfg_bool("SC4");  S4 = cfg_int("SC4", S4)
 
     # --------------------------------------------------
     # INSPECT RANGES
@@ -515,110 +541,95 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
                     model.Add(x[(r, c)] == 0)
 
     # hard constraint 1: must have hard1 Ds a day
-    for c in range(date_start_col, date_end_col + 1):
-        model.Add(sum(x[(r, c)] for r in range(row_start, row_end + 1)) == hard1)
+    if hc1_on:
+        for c in range(date_start_col, date_end_col + 1):
+            model.Add(sum(x[(r, c)] for r in range(row_start, row_end + 1)) == hard1)
 
-    # hard constraint 2: no weekend duty if worked weekend last month (unless manually assigned D)
-    for r in range(row_start, row_end + 1):
-        staff_name = str(fix_assignment_df.iat[r, 1]).strip().upper()
+    # hard constraint 2: no weekend duty if worked weekend last month
+    if hc2_on:
+        for r in range(row_start, row_end + 1):
+            staff_name = str(fix_assignment_df.iat[r, 1]).strip().upper()
+            if staff_name in weekend_workers_last_month:
+                for c in range(date_start_col, date_end_col + 1):
+                    if (r, c) in fixed_duties:
+                        continue
+                    current_day_num = c - date_start_col + 1
+                    current_date = datetime(year, month, current_day_num)
+                    if current_date.weekday() in [5, 6]:
+                        if (r, c) in x:
+                            model.Add(x[(r, c)] == 0)
 
-        if staff_name in weekend_workers_last_month:
-            for c in range(date_start_col, date_end_col + 1):
-                # skip if day was manually assigned a D
-                if (r, c) in fixed_duties:
-                    continue
+    # hard constraint 2F: no friday duty if worked friday last month
+    if hc2f_on:
+        for r in range(row_start, row_end + 1):
+            staff_name = str(fix_assignment_df.iat[r, 1]).strip().upper()
+            if staff_name in friday_workers_last_month:
+                for c in range(date_start_col, date_end_col + 1):
+                    if (r, c) in fixed_duties:
+                        continue
+                    current_day_num = c - date_start_col + 1
+                    current_date = datetime(year, month, current_day_num)
+                    if current_date.weekday() == 4:
+                        if (r, c) in x:
+                            model.Add(x[(r, c)] == 0)
 
-                # check if current day is a weekend
-                current_day_num = c - date_start_col + 1
-                current_date = datetime(year, month, current_day_num)
-
-                if current_date.weekday() in [5, 6]:
-                    if (r, c) in x:
-                        model.Add(x[(r, c)] == 0)
-
-        if staff_name in friday_workers_last_month:
-            for c in range(date_start_col, date_end_col + 1):
-                if (r, c) in fixed_duties:
-                    continue
-                current_day_num = c - date_start_col + 1
-                current_date = datetime(year, month, current_day_num)
-                if current_date.weekday() == 4:  # Friday
-                    if (r, c) in x:
-                        model.Add(x[(r, c)] == 0)
-
-    # hard constraint 3: 1x D per week (unless manually assigned D)
-    for r in range(row_start, row_end + 1):
-        for week, cols in iso_map.items():
-            vars_in_week = [x[(r, c)] for c in cols if (r, c) not in fixed_duties or c not in holiday_cols]
-            if vars_in_week:
-                model.Add(sum(vars_in_week) <= 1)
+    # hard constraint 3: 1x D per week
+    if hc3_on:
+        for r in range(row_start, row_end + 1):
+            for week, cols in iso_map.items():
+                vars_in_week = [x[(r, c)] for c in cols if (r, c) not in fixed_duties or c not in holiday_cols]
+                if vars_in_week:
+                    model.Add(sum(vars_in_week) <= 1)
 
     # hard constraint 4: cross-month and internal gap must be at least hard4 days
-    for r in range(row_start, row_end + 1):
-        staff_name = str(fix_assignment_df.iat[r, 1]).strip().upper()
-        last_month_list = duties_last_month.get(staff_name, [])
-
-        # cross-month gap
-        if last_month_list:
-            # get the very last duty day from the previous month
-            last_d_num = max(last_month_list)
-            last_d_date = datetime(year_old, month_old, last_d_num)
-
-            for c in range(date_start_col, date_end_col + 1):
-                # skip if there is a manual D
-                if (r, c) in fixed_duties:
-                    continue
-
-                current_date = col_to_date[c]
-                # calculate gap
-                if (current_date - last_d_date).days < hard4:
-                    model.Add(x[(r, c)] == 0)
-                else:
-                    break
-
-        # internal gap
-        for c1 in range(date_start_col, date_end_col + 1):
-            d1 = col_to_date[c1]
-            for c2 in range(c1 + 1, date_end_col + 1):
-                # skip if there is a manual D
-                if (r, c1) in fixed_duties or (r, c2) in fixed_duties:
-                    continue
-
-                # 4-day gap
-                if (col_to_date[c2] - d1).days >= hard4:
-                    break
-                model.Add(x[(r, c1)] + x[(r, c2)] <= 1)
+    if hc4_on:
+        for r in range(row_start, row_end + 1):
+            staff_name = str(fix_assignment_df.iat[r, 1]).strip().upper()
+            last_month_list = duties_last_month.get(staff_name, [])
+            if last_month_list:
+                last_d_num = max(last_month_list)
+                last_d_date = datetime(year_old, month_old, last_d_num)
+                for c in range(date_start_col, date_end_col + 1):
+                    if (r, c) in fixed_duties:
+                        continue
+                    current_date = col_to_date[c]
+                    if (current_date - last_d_date).days < hard4:
+                        model.Add(x[(r, c)] == 0)
+                    else:
+                        break
+            for c1 in range(date_start_col, date_end_col + 1):
+                d1 = col_to_date[c1]
+                for c2 in range(c1 + 1, date_end_col + 1):
+                    if (r, c1) in fixed_duties or (r, c2) in fixed_duties:
+                        continue
+                    if (col_to_date[c2] - d1).days >= hard4:
+                        break
+                    model.Add(x[(r, c1)] + x[(r, c2)] <= 1)
 
     # hard constraint 5: keep D count to <= hard5
-    for r in range(row_start, row_end + 1):
-        status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
-        is_excluded = any(k in status_val for k in exclusion_keywords)
-
-        total_duties_vars = [x[(r, c)] for c in range(date_start_col, date_end_col + 1)]
-
-        if is_excluded:
-            num_holiday_duties = sum(1 for c in holiday_cols if (r, c) in fixed_duties)
-            model.Add(sum(total_duties_vars) == num_holiday_duties)
-        elif is_female_pair.get(r, False):
-            # females are exempted
-            model.Add(sum(total_duties_vars) <= hard5 - 1)
-        else:
-            model.Add(sum(total_duties_vars) <= hard5)
+    if hc5_on:
+        for r in range(row_start, row_end + 1):
+            status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
+            is_excluded = any(k in status_val for k in exclusion_keywords)
+            total_duties_vars = [x[(r, c)] for c in range(date_start_col, date_end_col + 1)]
+            if is_excluded:
+                num_holiday_duties = sum(1 for c in holiday_cols if (r, c) in fixed_duties)
+                model.Add(sum(total_duties_vars) == num_holiday_duties)
+            elif is_female_pair.get(r, False):
+                model.Add(sum(total_duties_vars) <= hard5 - 1)
+            else:
+                model.Add(sum(total_duties_vars) <= hard5)
 
     # hard constraint 6: females must do duty together
-
-    for c in range(date_start_col, date_end_col + 1):
-        female_vars_on_day = [x[(r, c)] for r in female_indices if (r, c) in x]
-        
-        if female_vars_on_day:
-            # Create a helper variable to represent the count of females
-            female_count = model.NewIntVar(0, 2, f"female_count_day_{c}")
-            model.Add(female_count == sum(female_vars_on_day))
-            
-            # This forces the count to be either 0 or 2 (never 1)
-            is_female = model.NewBoolVar(f"is_female_{c}")
-            model.Add(female_count == 2).OnlyEnforceIf(is_female)
-            model.Add(female_count == 0).OnlyEnforceIf(is_female.Not())
+    if hc6_on:
+        for c in range(date_start_col, date_end_col + 1):
+            female_vars_on_day = [x[(r, c)] for r in female_indices if (r, c) in x]
+            if female_vars_on_day:
+                female_count = model.NewIntVar(0, 2, f"female_count_day_{c}")
+                model.Add(female_count == sum(female_vars_on_day))
+                is_female = model.NewBoolVar(f"is_female_{c}")
+                model.Add(female_count == 2).OnlyEnforceIf(is_female)
+                model.Add(female_count == 0).OnlyEnforceIf(is_female.Not())
 
     # --------------------------------------------------
     # SOFT CONSTRAINTS
@@ -627,65 +638,47 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
     soft_penalties = []
 
     # soft constraint 1: preferred pairings
-
-    for r1, r2 in partner_pairs:
-        for c in range(date_start_col, date_end_col + 1):
-            if (r1, c) in x and (r2, c) in x:
-                # create a boolean variable: 1 if they are split, 0 if they are together
-                is_split = model.NewBoolVar(f"split_{r1}_{r2}_day_{c}")
-                # Logic: is_split must be 1 if x[r1] != x[r2]
-                model.Add(x[(r1, c)] - x[(r2, c)] <= is_split)
-                model.Add(x[(r2, c)] - x[(r1, c)] <= is_split)
-
-                soft_penalties.append(is_split * S1)
+    if sc1_on:
+        for r1, r2 in partner_pairs:
+            for c in range(date_start_col, date_end_col + 1):
+                if (r1, c) in x and (r2, c) in x:
+                    is_split = model.NewBoolVar(f"split_{r1}_{r2}_day_{c}")
+                    model.Add(x[(r1, c)] - x[(r2, c)] <= is_split)
+                    model.Add(x[(r2, c)] - x[(r1, c)] <= is_split)
+                    soft_penalties.append(is_split * S1)
 
     # soft constraint 2: different branches
-
-    for c in range(date_start_col, date_end_col + 1):
-        for branch, row_indices in branch_to_row.items():
-            vars_in_branch = [x[(r,c)] for r in row_indices if (r, c) in x]
-
-            if len(vars_in_branch) >= 2:
-                same_branch_violation = model.NewBoolVar(f"branch_violation_{branch}_{c}")
-
-                model.Add(sum(vars_in_branch) < 2).OnlyEnforceIf(same_branch_violation.Not())
-                model.Add(sum(vars_in_branch) == 2).OnlyEnforceIf(same_branch_violation)
-
-                soft_penalties.append(same_branch_violation * S2)
+    if sc2_on:
+        for c in range(date_start_col, date_end_col + 1):
+            for branch, row_indices in branch_to_row.items():
+                vars_in_branch = [x[(r,c)] for r in row_indices if (r, c) in x]
+                if len(vars_in_branch) >= 2:
+                    same_branch_violation = model.NewBoolVar(f"branch_violation_{branch}_{c}")
+                    model.Add(sum(vars_in_branch) < 2).OnlyEnforceIf(same_branch_violation.Not())
+                    model.Add(sum(vars_in_branch) == 2).OnlyEnforceIf(same_branch_violation)
+                    soft_penalties.append(same_branch_violation * S2)
 
     # soft constraint 3: driver/non-driver/rider combination
-
-    for c in range(date_start_col, date_end_col + 1):
-        drivers_on_day = [x[(r,c)] for r in range(row_start, row_end + 1) if (r, c) in x and r in is_driver]
-
-    if drivers_on_day:
-        driver_count = model.NewIntVar(0, 2, f"driver_count_day_{c}")
-        model.Add(driver_count == sum(drivers_on_day))
-
-        mismatch = model.NewBoolVar(f"driver_mismatch_day_{c}")
-
-        model.Add(driver_count != 1).OnlyEnforceIf(mismatch)
-        model.Add(driver_count == 1).OnlyEnforceIf(mismatch.Not())
-
-        soft_penalties.append(mismatch * S3)
+    if sc3_on:
+        for c in range(date_start_col, date_end_col + 1):
+            drivers_on_day = [x[(r,c)] for r in range(row_start, row_end + 1) if (r, c) in x and r in is_driver]
+            if drivers_on_day:
+                driver_count = model.NewIntVar(0, 2, f"driver_count_day_{c}")
+                model.Add(driver_count == sum(drivers_on_day))
+                mismatch = model.NewBoolVar(f"driver_mismatch_day_{c}")
+                model.Add(driver_count != 1).OnlyEnforceIf(mismatch)
+                model.Add(driver_count == 1).OnlyEnforceIf(mismatch.Not())
+                soft_penalties.append(mismatch * S3)
 
     # soft constraint 4: minimum 1 day
-
     has_at_least_one_duty = {}
-    for r in range(row_start, row_end + 1):
-        # create a boolean variable: 1 if staff has >= 1 duty, 0 otherwise
-        has_at_least_one_duty[r] = model.NewBoolVar(f'has_duty_{r}')
-
-        # sum of duties for this specific staff member
-        duties_sum = sum(x[(r, c)] for c in range(date_start_col, date_end_col + 1) if (r, c) in x)
-
-        # if has_at_least_one_duty is True (1), then duties_sum must be >= 1
-        # if has_at_least_one_duty is False (0), then duties_sum must be 0
-        model.Add(duties_sum >= 1).OnlyEnforceIf(has_at_least_one_duty[r])
-        model.Add(duties_sum == 0).OnlyEnforceIf(has_at_least_one_duty[r].Not())
-
-        # penalize the NEGATION of having a duty
-        soft_penalties.append(has_at_least_one_duty[r].Not() * S4)
+    if sc4_on:
+        for r in range(row_start, row_end + 1):
+            has_at_least_one_duty[r] = model.NewBoolVar(f'has_duty_{r}')
+            duties_sum = sum(x[(r, c)] for c in range(date_start_col, date_end_col + 1) if (r, c) in x)
+            model.Add(duties_sum >= 1).OnlyEnforceIf(has_at_least_one_duty[r])
+            model.Add(duties_sum == 0).OnlyEnforceIf(has_at_least_one_duty[r].Not())
+            soft_penalties.append(has_at_least_one_duty[r].Not() * S4)
 
     # --------------------------------------------------
     # FAIRNESS OBJECTIVE
@@ -977,99 +970,62 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
             s[(r, c)] = model_s.NewBoolVar(f"s_{r}_{c}")
 
     # hard constraint 1S: must have hard1s S per day
-
-    for c in range(date_start_col, date_end_col + 1):
-        day_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
-        if day_vars:
-            model_s.Add(sum(day_vars) == hard1s)
+    if hc1s_on:
+        for c in range(date_start_col, date_end_col + 1):
+            day_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
+            if day_vars:
+                model_s.Add(sum(day_vars) == hard1s)
 
     # hard constraint 2S: must have hard2s days between D and S
-
-    for r in range(row_start, row_end + 1):
-
-        for c1 in range(date_start_col, date_end_col + 1):
-            d1 = col_to_date[c1]
-
-            for c2 in range(c1 + 1, date_end_col + 1):
-                d2 = col_to_date[c2]
-                day_diff = (d2 - d1).days
-
-                if day_diff < hard2s:
-
-                    # check D at c1, S at c2
-                    if planned_df.iat[r, c1] == "D" and (r, c2) in s:
-                        model_s.Add(s[(r, c2)] == 0)
-
-                    # check S at c1, D at c2
-                    if (r, c1) in s and planned_df.iat[r, c2] == "D":
-                        model_s.Add(s[(r, c1)] == 0)
-
-                    # check between S and S
-                    if (r, c1) in s and (r, c2) in s:
-                        model_s.Add(s[(r, c1)] + s[(r, c2)] <= hard2s - 1)
-
-                else:
-                    break
+    if hc2s_on:
+        for r in range(row_start, row_end + 1):
+            for c1 in range(date_start_col, date_end_col + 1):
+                d1 = col_to_date[c1]
+                for c2 in range(c1 + 1, date_end_col + 1):
+                    d2 = col_to_date[c2]
+                    day_diff = (d2 - d1).days
+                    if day_diff < hard2s:
+                        if planned_df.iat[r, c1] == "D" and (r, c2) in s:
+                            model_s.Add(s[(r, c2)] == 0)
+                        if (r, c1) in s and planned_df.iat[r, c2] == "D":
+                            model_s.Add(s[(r, c1)] == 0)
+                        if (r, c1) in s and (r, c2) in s:
+                            model_s.Add(s[(r, c1)] + s[(r, c2)] <= hard2s - 1)
+                    else:
+                        break
 
     # hard constraint 3S: S must be in same branch as D
-
     from collections import Counter
-
-    for c in range(date_start_col, date_end_col + 1):
-
-        # identify D per day
-        d_row_indices = [
-            r for r in range(row_start, row_end + 1)
-            if planned_df.iat[r, c] == "D"
-        ]
-
-        num_d = len(d_row_indices)
-
-        # if there is no D in the branch, no S allowed
-        day_s_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
-
-        if num_d == 0:
-            for var in day_s_vars:
-                model_s.Add(var == 0)
-            continue
-
-        # map D to branches
-        required_branches = []
-        for r_idx in d_row_indices:
-            for branch, rows in branch_to_row.items():
-                if r_idx in rows:
-                    required_branches.append(branch)
-                    break
-
-        branch_counts = Counter(required_branches)
-
-        # total S must equal to total D
-        if len(day_s_vars) < num_d:
-            raise ValueError(
-                f"Day {c}: {len(day_s_vars)} S candidates for {num_d} Ds"
-            )
-
-        model_s.Add(sum(day_s_vars) == num_d)
-
-        # each branch gets the same no. of S as D
-        for branch, required_s in branch_counts.items():
-            row_indices = branch_to_row[branch]
-            branch_s_vars = [s[(r, c)] for r in row_indices if (r, c) in s]
-
-            if len(branch_s_vars) < required_s:
-                raise ValueError(
-                    f"Day {c}, Branch {branch}: "
-                    f"needs {required_s} S but only {len(branch_s_vars)} available"
-                )
-
-            model_s.Add(sum(branch_s_vars) == required_s)
-
-        # branches with D have no S
-        for branch, row_indices in branch_to_row.items():
-            if branch not in branch_counts:
-                for r in row_indices:
-                    if (r, c) in s:
-                        model_s.Add(s[(r, c)] == 0)
+    if hc3s_on:
+        for c in range(date_start_col, date_end_col + 1):
+            d_row_indices = [r for r in range(row_start, row_end + 1) if planned_df.iat[r, c] == "D"]
+            num_d = len(d_row_indices)
+            day_s_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
+            if num_d == 0:
+                for var in day_s_vars:
+                    model_s.Add(var == 0)
+                continue
+            required_branches = []
+            for r_idx in d_row_indices:
+                for branch, rows in branch_to_row.items():
+                    if r_idx in rows:
+                        required_branches.append(branch)
+                        break
+            branch_counts = Counter(required_branches)
+            if len(day_s_vars) < num_d:
+                raise ValueError(f"Day {c}: {len(day_s_vars)} S candidates for {num_d} Ds")
+            model_s.Add(sum(day_s_vars) == num_d)
+            for branch, required_s in branch_counts.items():
+                row_indices = branch_to_row[branch]
+                branch_s_vars = [s[(r, c)] for r in row_indices if (r, c) in s]
+                if len(branch_s_vars) < required_s:
+                    raise ValueError(f"Day {c}, Branch {branch}: needs {required_s} S but only {len(branch_s_vars)} available")
+                model_s.Add(sum(branch_s_vars) == required_s)
+            for branch, row_indices in branch_to_row.items():
+                if branch not in branch_counts:
+                    for r in row_indices:
+                        if (r, c) in s:
+                            model_s.Add(s[(r, c)] == 0)
 
     # count the number of S and ensure it doesnt not exceed 5
     s_counts = {}
