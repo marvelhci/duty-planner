@@ -94,7 +94,6 @@ def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_config(_client, spreadsheet_name):
-    """Reads CONFIG sheet and returns constraint + password settings as a dict."""
     try:
         sh = _client.open(spreadsheet_name)
         ws = sh.worksheet("CONFIG")
@@ -117,14 +116,22 @@ def fetch_config(_client, spreadsheet_name):
                 cid = row[0].strip()
                 if not cid or cid.upper() == "CONSTRAINT_ID":
                     continue
+                import json as _json
+                _raw_param = row[5].strip() if len(row) > 5 else ""
+                try:
+                    _rule = _json.loads(_raw_param) if _raw_param.startswith("{") else {}
+                except:
+                    _rule = {}
                 cfg[cid] = {
                     "label":        row[1].strip() if len(row) > 1 else cid,
                     "type":         row[2].strip() if len(row) > 2 else "",
                     "active":       row[3].strip().upper() == "TRUE" if len(row) > 3 else True,
                     "draft_active": row[4].strip().upper() == "TRUE" if len(row) > 4 else True,
-                    "param":        row[5].strip() if len(row) > 5 else "",
+                    "param":        _raw_param,
+                    "rule":         _rule,
                     "param_label":  row[6].strip() if len(row) > 6 else "",
-                    "description":  row[7].strip() if len(row) > 7 else "",
+                    "duty_type":    row[7].strip() if len(row) > 7 else "",
+                    "description":  row[8].strip() if len(row) > 8 else "",
                 }
         cfg["_passwords"] = pwd
         return cfg
@@ -1514,6 +1521,152 @@ if role == 'Dev':
                         st.success("✅ Constraints published!")
                 except Exception as e:
                     st.error(f"❌ Publish failed: {e}")
+
+            # ── Add New Constraint (Rule Builder) ──
+            st.markdown("---")
+            st.subheader("➕ Add New Constraint")
+            with st.container(border=True):
+                import json as _json
+
+                _ACTION_OPTIONS = [
+                    "exactly_x_per_day",
+                    "at_most_x_per_month",
+                    "at_most_x_per_week",
+                    "gap_at_least_x_days",
+                    "grouped_0_or_n",
+                    "cannot_work_day_type",
+                    "match_branch_of_d",
+                    "prefer_together",
+                    "prefer_different",
+                    "prefer_balanced_mix",
+                    "at_least_1_per_month",
+                ]
+                _ACTION_LABELS = {
+                    "exactly_x_per_day":     "Exactly X per day",
+                    "at_most_x_per_month":   "At most X per month",
+                    "at_most_x_per_week":    "At most X per week",
+                    "gap_at_least_x_days":   "Gap of at least X days",
+                    "grouped_0_or_n":        "Grouped (0 or N, never partial)",
+                    "cannot_work_day_type":  "Cannot work day type",
+                    "match_branch_of_d":     "Match branch of D",
+                    "prefer_together":       "Prefer together (soft)",
+                    "prefer_different":      "Prefer different (soft)",
+                    "prefer_balanced_mix":   "Prefer balanced mix (soft)",
+                    "at_least_1_per_month":  "At least 1 per month",
+                }
+                _COND_OPTIONS = ["none", "worked_day_type_last_month", "person_attribute_is"]
+                _COND_LABELS  = {
+                    "none":                        "No condition",
+                    "worked_day_type_last_month":  "Worked [day type] last month",
+                    "person_attribute_is":         "Person attribute is",
+                }
+                _DAY_TYPES    = ["any", "weekday", "friday", "weekend", "holiday"]
+                _ATTRIBUTES   = ["gender=female", "partner", "driving_status", "branch", "name"]
+
+                nc_col1, nc_col2 = st.columns(2)
+                with nc_col1:
+                    nc_type      = st.selectbox("Constraint Type", ["hard", "soft"], key="nc_type")
+                    nc_duty_type = st.selectbox("Assignment Type", ["D", "S", "DS"], key="nc_duty_type")
+                    nc_subject   = st.selectbox("Subject", ["person", "day"], key="nc_subject")
+                    nc_label     = st.text_input("Label", key="nc_label", placeholder="e.g. Max 2 duties per week")
+                    nc_desc      = st.text_input("Description", key="nc_desc", placeholder="What does this constraint do?")
+
+                with nc_col2:
+                    nc_cond_type = st.selectbox("Condition", _COND_OPTIONS,
+                                                format_func=lambda x: _COND_LABELS[x], key="nc_cond_type")
+                    # condition value depends on condition type
+                    if nc_cond_type == "worked_day_type_last_month":
+                        nc_cond_val = st.selectbox("Condition Value (day type)", _DAY_TYPES, key="nc_cond_val_dt")
+                    elif nc_cond_type == "person_attribute_is":
+                        nc_cond_val = st.selectbox("Condition Value (attribute)", _ATTRIBUTES, key="nc_cond_val_attr")
+                    else:
+                        nc_cond_val = ""
+                        st.caption("No condition value needed")
+
+                    nc_action    = st.selectbox("Action", _ACTION_OPTIONS,
+                                                format_func=lambda x: _ACTION_LABELS[x], key="nc_action")
+                    # action value
+                    _needs_day_type_val = nc_action == "cannot_work_day_type"
+                    _needs_attr_val     = nc_action in ["prefer_together", "prefer_different", "prefer_balanced_mix"]
+                    _needs_num_val      = nc_action in ["exactly_x_per_day","at_most_x_per_month","at_most_x_per_week","gap_at_least_x_days","grouped_0_or_n"]
+                    _is_soft            = nc_action in ["prefer_together","prefer_different","prefer_balanced_mix","at_least_1_per_month"]
+
+                    if _needs_day_type_val:
+                        nc_action_val = st.selectbox("Action Value (day type)", _DAY_TYPES, key="nc_action_val_dt")
+                    elif _needs_attr_val:
+                        nc_action_val = st.selectbox("Action Value (attribute)", _ATTRIBUTES, key="nc_action_val_attr")
+                    elif _needs_num_val:
+                        nc_action_val = st.text_input("Action Value (number)", key="nc_action_val_num", placeholder="e.g. 2")
+                    else:
+                        nc_action_val = ""
+                        st.caption("No action value needed")
+
+                    nc_penalty = 0
+                    if _is_soft or nc_type == "soft":
+                        nc_penalty = st.number_input("Penalty Weight", min_value=0, value=100, step=10, key="nc_penalty")
+
+                    nc_param_label = st.text_input("Param Label (optional)", key="nc_param_label",
+                                                   placeholder="e.g. Gap days")
+
+                # preview the rule
+                _preview_rule = {
+                    "subject":         nc_subject,
+                    "assignment":      nc_duty_type,
+                    "condition_type":  nc_cond_type,
+                    "condition_value": nc_cond_val if nc_cond_type != "none" else "",
+                    "action":          nc_action,
+                    "action_value":    nc_action_val,
+                    "soft":            _is_soft or nc_type == "soft",
+                    "penalty":         nc_penalty,
+                }
+                st.caption("**Rule preview:** " + _json.dumps(_preview_rule))
+
+                if st.button("➕ Add Constraint", use_container_width=True, key="nc_add"):
+                    if not nc_label:
+                        st.error("❌ Label is required.")
+                    else:
+                        try:
+                            _dws = client.open("MASTER SHEET").worksheet("CONFIG")
+                            _drows = _dws.get_all_values()
+                            existing_ids = [r[0].strip() for r in _drows
+                                            if r and r[0].strip()
+                                            and r[0].strip().upper() not in ("CONSTRAINT_ID", "KEY")]
+                            # auto-assign ID
+                            if nc_type == "hard" and nc_duty_type == "S":
+                                nums = [int(i[2:-1]) for i in existing_ids
+                                        if i.upper().startswith("HC") and i.upper().endswith("S")
+                                        and i[2:-1].isdigit()]
+                                new_cid = f"HC{max(nums)+1 if nums else 1}S"
+                            elif nc_type == "hard":
+                                nums = [int(i[2:]) for i in existing_ids
+                                        if i.upper().startswith("HC") and not i.upper().endswith("S")
+                                        and i[2:].isdigit()]
+                                new_cid = f"HC{max(nums)+1 if nums else 1}"
+                            else:
+                                nums = [int(i[2:]) for i in existing_ids
+                                        if i.upper().startswith("SC") and i[2:].isdigit()]
+                                new_cid = f"SC{max(nums)+1 if nums else 1}"
+
+                            # find insertion point before KEY row
+                            insert_row = len(_drows) + 1
+                            for i, row in enumerate(_drows):
+                                if row and row[0].strip().upper() == "KEY":
+                                    insert_row = i + 1
+                                    break
+
+                            _dws.insert_row([], insert_row)
+                            new_row_data = [
+                                new_cid, nc_label, nc_type, "TRUE", "TRUE",
+                                _json.dumps(_preview_rule),
+                                nc_param_label, nc_duty_type, nc_desc
+                            ]
+                            _dws.update(f"A{insert_row}:I{insert_row}", [new_row_data])
+                            fetch_config.clear()
+                            st.success(f"✅ Added **{new_cid}**: {nc_label}. "
+                                       f"Remember to verify the rule JSON is correct!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to add constraint: {e}")
     except Exception as e:
         st.error(f"❌ Could not load constraints: {e}")
 
