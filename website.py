@@ -273,13 +273,8 @@ if role == 'Admin':
         col_slider, col_input = st.sidebar.columns([3, 1])
 
         # load CONFIG sheet once for this page
-        try:
-            _dbg_client = get_gspread_auth()
-            _dbg_cfg = fetch_config(_dbg_client, "MASTER SHEET")
-            st.write("Config loaded:", "_error" not in _dbg_cfg)
-            st.write("Admin pw:", _dbg_cfg.get("_passwords", {}).get("admin_password", "NOT FOUND"))
-        except Exception as e:
-            st.write("Config error:", str(e))
+        _cfg_client = get_gspread_auth()
+        sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
 
         def _cfg_param(cid, fallback):
             try:
@@ -849,9 +844,16 @@ if role == 'Admin':
         # --------------------------------------------------
         st.markdown("---")
         with st.expander("🔧 Dev Access", expanded=False):
-            dev_pwd_input = st.text_input("Dev Password", type="password", key="dev_pwd_input")
             DEV_PASSWORD = "devpass"
-            if dev_pwd_input == DEV_PASSWORD:
+            if not st.session_state.get("dev_authenticated", False):
+                dev_pwd_input = st.text_input("Dev Password", type="password", key="dev_pwd_input")
+                if st.button("Unlock Dev Access", key="dev_unlock_btn"):
+                    if dev_pwd_input == DEV_PASSWORD:
+                        st.session_state["dev_authenticated"] = True
+                        st.rerun()
+                    else:
+                        st.error("❌ Incorrect dev password")
+            if st.session_state.get("dev_authenticated", False):
                 st.success("✅ Dev access granted")
                 st.subheader("🔑 Password Management")
                 with st.container(border=True):
@@ -883,8 +885,10 @@ if role == 'Admin':
                                 st.warning("⚠️ Password rows not found in CONFIG sheet.")
                         except Exception as e:
                             st.error(f"❌ Failed to save passwords: {e}")
-            elif dev_pwd_input:
-                st.error("❌ Incorrect dev password")
+            if st.session_state.get("dev_authenticated", False):
+                if st.button("🔒 Lock Dev Access", key="dev_lock_btn"):
+                    st.session_state["dev_authenticated"] = False
+                    st.rerun()
 
     if admin_page == "✏️ Editing":
 
