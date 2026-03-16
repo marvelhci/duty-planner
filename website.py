@@ -273,8 +273,13 @@ if role == 'Admin':
         col_slider, col_input = st.sidebar.columns([3, 1])
 
         # load CONFIG sheet once for this page
-        _cfg_client = get_gspread_auth()
-        sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
+        try:
+            _dbg_client = get_gspread_auth()
+            _dbg_cfg = fetch_config(_dbg_client, "MASTER SHEET")
+            st.write("Config loaded:", "_error" not in _dbg_cfg)
+            st.write("Admin pw:", _dbg_cfg.get("_passwords", {}).get("admin_password", "NOT FOUND"))
+        except Exception as e:
+            st.write("Config error:", str(e))
 
         def _cfg_param(cid, fallback):
             try:
