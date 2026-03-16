@@ -273,8 +273,13 @@ if role == 'Admin':
         col_slider, col_input = st.sidebar.columns([3, 1])
 
         # load CONFIG sheet once for this page
-        _cfg_client = get_gspread_auth()
-        sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
+        try:
+            _dbg_client = get_gspread_auth()
+            _dbg_cfg = fetch_config(_dbg_client, "MASTER SHEET")
+            st.write("Config loaded:", "_error" not in _dbg_cfg)
+            st.write("Admin pw:", _dbg_cfg.get("_passwords", {}).get("admin_password", "NOT FOUND"))
+        except Exception as e:
+            st.write("Config error:", str(e))
 
         def _cfg_param(cid, fallback):
             try:
@@ -838,57 +843,6 @@ if role == 'Admin':
                     except Exception as e:
                         st.error(f"❌ Failed to remove person: {e}")
                         st.code(traceback.format_exc())
-
-        # --------------------------------------------------
-        # DEV PANEL
-        # --------------------------------------------------
-        st.markdown("---")
-        DEV_PASSWORD = "devpass"
-        _dev_authed = st.session_state.get("dev_authenticated", False)
-        with st.expander("🔧 Dev Access", expanded=_dev_authed):
-            if not _dev_authed:
-                dev_pwd_input = st.text_input("Dev Password", type="password", key="dev_pwd_input")
-                if st.button("Unlock Dev Access", key="dev_unlock_btn"):
-                    if dev_pwd_input == DEV_PASSWORD:
-                        st.session_state["dev_authenticated"] = True
-                        st.rerun()
-                    else:
-                        st.error("❌ Incorrect dev password")
-            else:
-                st.success("✅ Dev access granted")
-                st.subheader("🔑 Password Management")
-                with st.container(border=True):
-                    try:
-                        _dev_cfg = fetch_config(client, "MASTER SHEET")
-                        _cur_admin = _dev_cfg.get("_passwords", {}).get("admin_password", "")
-                        _cur_user  = _dev_cfg.get("_passwords", {}).get("user_password", "")
-                    except:
-                        _cur_admin = ""
-                        _cur_user  = ""
-                    new_admin_pw = st.text_input("New Admin Password", value=_cur_admin, type="password", key="new_admin_pw")
-                    new_user_pw  = st.text_input("New User Password",  value=_cur_user,  type="password", key="new_user_pw")
-                    if st.button("💾 Save Passwords", use_container_width=True):
-                        try:
-                            _dev_sh   = client.open("MASTER SHEET")
-                            _dev_ws   = _dev_sh.worksheet("CONFIG")
-                            _dev_rows = _dev_ws.get_all_values()
-                            _pw_upd   = []
-                            for i, row in enumerate(_dev_rows):
-                                if row and row[0].strip() == "admin_password":
-                                    _pw_upd.append({"range": f"B{i+1}", "values": [[new_admin_pw]]})
-                                if row and row[0].strip() == "user_password":
-                                    _pw_upd.append({"range": f"B{i+1}", "values": [[new_user_pw]]})
-                            if _pw_upd:
-                                _dev_ws.batch_update(_pw_upd)
-                                fetch_config.clear()
-                                st.success("✅ Passwords updated!")
-                            else:
-                                st.warning("⚠️ Password rows not found in CONFIG sheet.")
-                        except Exception as e:
-                            st.error(f"❌ Failed to save passwords: {e}")
-                if st.button("🔒 Lock Dev Access", key="dev_lock_btn"):
-                    st.session_state["dev_authenticated"] = False
-                    st.rerun()
 
     if admin_page == "✏️ Editing":
 
@@ -1530,6 +1484,57 @@ if role == 'Admin':
 
         except Exception as e:
             st.sidebar.warning(f"⚠️ Could not load adjustment tool: {e}")
+
+    # --------------------------------------------------
+    # DEV PANEL (always visible to admins, any page)
+    # --------------------------------------------------
+    st.markdown("---")
+    DEV_PASSWORD = "devpass"
+    _dev_authed = st.session_state.get("dev_authenticated", False)
+    with st.expander("🔧 Dev Access", expanded=_dev_authed):
+        if not _dev_authed:
+            dev_pwd_input = st.text_input("Dev Password", type="password", key="dev_pwd_input")
+            if st.button("Unlock Dev Access", key="dev_unlock_btn"):
+                if dev_pwd_input == DEV_PASSWORD:
+                    st.session_state["dev_authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect dev password")
+        else:
+            st.success("✅ Dev access granted")
+            st.subheader("🔑 Password Management")
+            with st.container(border=True):
+                try:
+                    _dev_cfg = fetch_config(client, "MASTER SHEET")
+                    _cur_admin = _dev_cfg.get("_passwords", {}).get("admin_password", "")
+                    _cur_user  = _dev_cfg.get("_passwords", {}).get("user_password", "")
+                except:
+                    _cur_admin = ""
+                    _cur_user  = ""
+                new_admin_pw = st.text_input("New Admin Password", value=_cur_admin, type="password", key="new_admin_pw")
+                new_user_pw  = st.text_input("New User Password",  value=_cur_user,  type="password", key="new_user_pw")
+                if st.button("💾 Save Passwords", use_container_width=True):
+                    try:
+                        _dev_sh   = client.open("MASTER SHEET")
+                        _dev_ws   = _dev_sh.worksheet("CONFIG")
+                        _dev_rows = _dev_ws.get_all_values()
+                        _pw_upd   = []
+                        for i, row in enumerate(_dev_rows):
+                            if row and row[0].strip() == "admin_password":
+                                _pw_upd.append({"range": f"B{i+1}", "values": [[new_admin_pw]]})
+                            if row and row[0].strip() == "user_password":
+                                _pw_upd.append({"range": f"B{i+1}", "values": [[new_user_pw]]})
+                        if _pw_upd:
+                            _dev_ws.batch_update(_pw_upd)
+                            fetch_config.clear()
+                            st.success("✅ Passwords updated!")
+                        else:
+                            st.warning("⚠️ Password rows not found in CONFIG sheet.")
+                    except Exception as e:
+                        st.error(f"❌ Failed to save passwords: {e}")
+            if st.button("🔒 Lock Dev Access", key="dev_lock_btn"):
+                st.session_state["dev_authenticated"] = False
+                st.rerun()
 
 # --------------------------------------------------
 # USER INTERFACE
