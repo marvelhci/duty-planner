@@ -1505,25 +1505,21 @@ if role == 'Dev':
                 except Exception as e:
                     st.warning(f"⚠️ Could not save draft: {e}")
 
-            col_pub1, col_pub2 = st.columns([1, 3])
-            with col_pub1:
-                if st.button("✅ Publish Changes", use_container_width=True, key="dev_publish"):
-                    try:
-                        _dws = client.open("MASTER SHEET").worksheet("CONFIG")
-                        _drows = _dws.get_all_values()
-                        _dpub = []
-                        for i, row in enumerate(_drows):
-                            if row and row[0].strip() in _dev_constraint_ids:
-                                draft_val = row[4].strip() if len(row) > 4 else "TRUE"
-                                _dpub.append({"range": f"D{i+1}", "values": [[draft_val]]})
-                        if _dpub:
-                            _dws.batch_update(_dpub)
-                            fetch_config.clear()
-                            st.success("✅ Constraints published!")
-                    except Exception as e:
-                        st.error(f"❌ Publish failed: {e}")
-            with col_pub2:
-                st.caption("Publish copies all draft settings to live. The next optimiser run will use published settings.")
+            if st.button("✅ Publish Changes", use_container_width=True, key="dev_publish"):
+                try:
+                    _dws = client.open("MASTER SHEET").worksheet("CONFIG")
+                    _drows = _dws.get_all_values()
+                    _dpub = []
+                    for i, row in enumerate(_drows):
+                        if row and row[0].strip() in _dev_constraint_ids:
+                            draft_val = row[4].strip() if len(row) > 4 else "TRUE"
+                            _dpub.append({"range": f"D{i+1}", "values": [[draft_val]]})
+                    if _dpub:
+                        _dws.batch_update(_dpub)
+                        fetch_config.clear()
+                        st.success("✅ Constraints published!")
+                except Exception as e:
+                    st.error(f"❌ Publish failed: {e}")
     except Exception as e:
         st.error(f"❌ Could not load constraints: {e}")
 
