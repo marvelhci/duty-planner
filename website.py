@@ -223,8 +223,9 @@ if not st.session_state['logged_in']:
             st.error("❌ Incorrect Password")
     st.stop()
 
-st.sidebar.button("Logout", on_click=logout)
 role = st.session_state['user_role']
+if role != 'Dev':
+    st.sidebar.button("Logout", on_click=logout, key="admin_logout")
 
 # --------------------------------------------------
 # ADMIN INTERFACE
@@ -419,90 +420,6 @@ if role == 'Admin':
             "scalefactor": scalefactor_val,
             "sbf_val": sbf_val
         }
-
-        # --------------------------------------------------
-        # CONSTRAINT PANEL
-        # --------------------------------------------------
-        st.markdown("---")
-        st.subheader("⚙️ Constraint Settings")
-
-        if "_error" in sheet_cfg:
-            st.warning(f"⚠️ Could not load CONFIG sheet: {sheet_cfg['_error']}. Using defaults.")
-
-        constraint_ids = [k for k in sheet_cfg.keys() if not k.startswith("_")]
-        if constraint_ids:
-            hard_constraints = {k: v for k, v in sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "hard"}
-            soft_constraints = {k: v for k, v in sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "soft"}
-
-            draft_updates = {}
-
-            with st.expander("🔒 Hard Constraints", expanded=False):
-                for cid, cv in hard_constraints.items():
-                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
-                    with col_tog:
-                        cur = cv.get("draft_active", cv.get("active", True))
-                        new_val = st.toggle("", value=cur, key=f"tog_{cid}")
-                        if new_val != cur:
-                            draft_updates[cid] = new_val
-                    with col_lbl:
-                        st.markdown(f"**{cv.get('label', cid)}**")
-                        if cv.get("param_label") and cv.get("param","") != "":
-                            st.caption(f"{cv['param_label']}: {cv['param']}")
-                    with col_desc:
-                        st.caption(cv.get("description", ""))
-
-            with st.expander("🔓 Soft Constraints", expanded=False):
-                for cid, cv in soft_constraints.items():
-                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
-                    with col_tog:
-                        cur = cv.get("draft_active", cv.get("active", True))
-                        new_val = st.toggle("", value=cur, key=f"tog_{cid}")
-                        if new_val != cur:
-                            draft_updates[cid] = new_val
-                    with col_lbl:
-                        st.markdown(f"**{cv.get('label', cid)}**")
-                        if cv.get("param_label") and cv.get("param","") != "":
-                            st.caption(f"{cv['param_label']}: {cv['param']}")
-                    with col_desc:
-                        st.caption(cv.get("description", ""))
-
-            if draft_updates:
-                try:
-                    _cfg_sh = get_gspread_auth().open("MASTER SHEET")
-                    _cfg_ws = _cfg_sh.worksheet("CONFIG")
-                    _cfg_rows = _cfg_ws.get_all_values()
-                    _upd = []
-                    for i, row in enumerate(_cfg_rows):
-                        if row and row[0].strip() in draft_updates:
-                            _upd.append({"range": f"E{i+1}", "values": [["TRUE" if draft_updates[row[0].strip()] else "FALSE"]]})
-                    if _upd:
-                        _cfg_ws.batch_update(_upd)
-                        fetch_config.clear()
-                except Exception as e:
-                    st.warning(f"⚠️ Could not save draft: {e}")
-
-            col_pub1, col_pub2 = st.columns([1, 3])
-            with col_pub1:
-                if st.button("✅ Publish Changes", use_container_width=True):
-                    try:
-                        _cfg_sh = get_gspread_auth().open("MASTER SHEET")
-                        _cfg_ws = _cfg_sh.worksheet("CONFIG")
-                        _cfg_rows = _cfg_ws.get_all_values()
-                        _pub = []
-                        for i, row in enumerate(_cfg_rows):
-                            if row and row[0].strip() in constraint_ids:
-                                draft_val = row[4].strip() if len(row) > 4 else "TRUE"
-                                _pub.append({"range": f"D{i+1}", "values": [[draft_val]]})
-                        if _pub:
-                            _cfg_ws.batch_update(_pub)
-                            fetch_config.clear()
-                            st.success("✅ Constraints published!")
-                    except Exception as e:
-                        st.error(f"❌ Publish failed: {e}")
-            with col_pub2:
-                st.caption("Publish copies all draft settings to live. The next optimiser run will use published settings.")
-        else:
-            st.caption("No CONFIG sheet found. Create a CONFIG tab in your spreadsheet to enable constraint management.")
 
         # main interface
 
@@ -1495,10 +1412,11 @@ if role == 'Admin':
 
 if role == 'Dev':
     st.title("🔧 Dev Panel")
-    st.sidebar.button("Logout", on_click=logout)
+    st.sidebar.button("Logout", on_click=logout, key="dev_logout")
 
     client = get_gspread_auth()
 
+    # ── Password Management ──
     st.subheader("🔑 Password Management")
     with st.container(border=True):
         try:
@@ -1510,7 +1428,7 @@ if role == 'Dev':
             _cur_user  = ""
         new_admin_pw = st.text_input("New Admin Password", value=_cur_admin, type="password", key="new_admin_pw")
         new_user_pw  = st.text_input("New User Password",  value=_cur_user,  type="password", key="new_user_pw")
-        if st.button("💾 Save Passwords", use_container_width=True):
+        if st.button("💾 Save Passwords", use_container_width=True, key="dev_save_pw"):
             try:
                 _dev_sh   = client.open("MASTER SHEET")
                 _dev_ws   = _dev_sh.worksheet("CONFIG")
@@ -1529,6 +1447,85 @@ if role == 'Dev':
                     st.warning("⚠️ Password rows not found in CONFIG sheet.")
             except Exception as e:
                 st.error(f"❌ Failed to save passwords: {e}")
+
+    # ── Constraint Settings ──
+    st.markdown("---")
+    st.subheader("⚙️ Constraint Settings")
+    try:
+        _dev_sheet_cfg = fetch_config(client, "MASTER SHEET")
+        if "_error" in _dev_sheet_cfg:
+            st.warning(f"⚠️ Could not load CONFIG sheet: {_dev_sheet_cfg['_error']}")
+        else:
+            _dev_constraint_ids = [k for k in _dev_sheet_cfg.keys() if not k.startswith("_")]
+            _dev_hard = {k: v for k, v in _dev_sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "hard"}
+            _dev_soft = {k: v for k, v in _dev_sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "soft"}
+            _dev_drafts = {}
+
+            with st.expander("🔒 Hard Constraints", expanded=False):
+                for cid, cv in _dev_hard.items():
+                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
+                    with col_tog:
+                        cur = cv.get("draft_active", cv.get("active", True))
+                        nv = st.toggle("", value=cur, key=f"dev_tog_{cid}")
+                        if nv != cur:
+                            _dev_drafts[cid] = nv
+                    with col_lbl:
+                        st.markdown(f"**{cv.get('label', cid)}**")
+                        if cv.get("param_label") and cv.get("param","") != "":
+                            st.caption(f"{cv['param_label']}: {cv['param']}")
+                    with col_desc:
+                        st.caption(cv.get("description", ""))
+
+            with st.expander("🔓 Soft Constraints", expanded=False):
+                for cid, cv in _dev_soft.items():
+                    col_tog, col_lbl, col_desc = st.columns([1, 2, 4])
+                    with col_tog:
+                        cur = cv.get("draft_active", cv.get("active", True))
+                        nv = st.toggle("", value=cur, key=f"dev_tog_{cid}")
+                        if nv != cur:
+                            _dev_drafts[cid] = nv
+                    with col_lbl:
+                        st.markdown(f"**{cv.get('label', cid)}**")
+                        if cv.get("param_label") and cv.get("param","") != "":
+                            st.caption(f"{cv['param_label']}: {cv['param']}")
+                    with col_desc:
+                        st.caption(cv.get("description", ""))
+
+            if _dev_drafts:
+                try:
+                    _dws = client.open("MASTER SHEET").worksheet("CONFIG")
+                    _drows = _dws.get_all_values()
+                    _dupd = []
+                    for i, row in enumerate(_drows):
+                        if row and row[0].strip() in _dev_drafts:
+                            _dupd.append({"range": f"E{i+1}", "values": [["TRUE" if _dev_drafts[row[0].strip()] else "FALSE"]]})
+                    if _dupd:
+                        _dws.batch_update(_dupd)
+                        fetch_config.clear()
+                except Exception as e:
+                    st.warning(f"⚠️ Could not save draft: {e}")
+
+            col_pub1, col_pub2 = st.columns([1, 3])
+            with col_pub1:
+                if st.button("✅ Publish Changes", use_container_width=True, key="dev_publish"):
+                    try:
+                        _dws = client.open("MASTER SHEET").worksheet("CONFIG")
+                        _drows = _dws.get_all_values()
+                        _dpub = []
+                        for i, row in enumerate(_drows):
+                            if row and row[0].strip() in _dev_constraint_ids:
+                                draft_val = row[4].strip() if len(row) > 4 else "TRUE"
+                                _dpub.append({"range": f"D{i+1}", "values": [[draft_val]]})
+                        if _dpub:
+                            _dws.batch_update(_dpub)
+                            fetch_config.clear()
+                            st.success("✅ Constraints published!")
+                    except Exception as e:
+                        st.error(f"❌ Publish failed: {e}")
+            with col_pub2:
+                st.caption("Publish copies all draft settings to live. The next optimiser run will use published settings.")
+    except Exception as e:
+        st.error(f"❌ Could not load constraints: {e}")
 
 # --------------------------------------------------
 # USER INTERFACE
