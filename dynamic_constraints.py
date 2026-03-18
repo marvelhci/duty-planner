@@ -1,54 +1,46 @@
 import json
 from collections import defaultdict
 from datetime import datetime
+import calendar as cal_mod
 
-DAY_TYPE_WEEKDAY_NUMS = [0, 1, 2, 3]   # Mon-Thu
-DAY_TYPE_FRIDAY_NUM   = 4
-DAY_TYPE_WEEKEND_NUMS = [5, 6]
+DAY_TYPE_MAP = {
+    "weekday": [0,1,2,3],
+    "friday":  [4],
+    "weekend": [5,6],
+}
 
-def _day_type_matches(dt_obj, day_type_str, holiday_days):
-    d = day_type_str.lower()
+def _matches_day_type(dt_obj, day_type, holiday_days):
+    d = day_type.lower()
     wd = dt_obj.weekday()
-    if d == "any":
-        return True
-    if d == "weekday":
-        return wd in DAY_TYPE_WEEKDAY_NUMS
-    if d == "friday":
-        return wd == DAY_TYPE_FRIDAY_NUM
-    if d == "weekend":
-        return wd in DAY_TYPE_WEEKEND_NUMS
-    if d == "holiday":
-        return dt_obj.day in holiday_days
-    return False
+    if d == "any":     return True
+    if d == "holiday": return dt_obj.day in holiday_days
+    return wd in DAY_TYPE_MAP.get(d, [])
 
-def _get_last_month_workers_by_day_type(last_month_df, year_old, month_old, 
-                                         row_start, row_end, date_start_col, holiday_days_old):
-    from datetime import datetime
-    import calendar as cal_mod
-    workers = defaultdict(set)
-    if last_month_df is None:
-        return workers
+def _last_month_worked(last_month_df, year_old, month_old,
+                       row_start, row_end, date_start_col, holiday_days_old):
+    """Returns dict: day_type_str -> set of names who worked that type last month."""
     import pandas as pd
-    if not isinstance(last_month_df, pd.DataFrame):
+    workers = defaultdict(set)
+    if last_month_df is None or not isinstance(last_month_df, pd.DataFrame):
         return workers
-    _, last_num_days = cal_mod.monthrange(year_old, month_old)
-    for c in range(date_start_col, date_start_col + last_num_days):
+    _, lnd = cal_mod.monthrange(year_old, month_old)
+    for c in range(date_start_col, date_start_col + lnd):
         day_num = c - date_start_col + 1
-        last_date = datetime(year_old, month_old, day_num)
+        ld = datetime(year_old, month_old, day_num)
         for r in range(row_start, row_end + 1):
             try:
-                cell_val = str(last_month_df.iat[r, c]).strip().upper()
+                cv = str(last_month_df.iat[r, c]).strip().upper()
             except:
                 continue
-            if cell_val == "D":
+            if cv == "D":
                 name = str(last_month_df.iat[r, 1]).strip().upper()
-                wd = last_date.weekday()
-                if wd in DAY_TYPE_WEEKEND_NUMS:
-                    workers["weekend"].add(name)
-                elif wd == DAY_TYPE_FRIDAY_NUM:
-                    workers["friday"].add(name)
-                elif day_num in holiday_days_old:
+                wd = ld.weekday()
+                if day_num in holiday_days_old:
                     workers["holiday"].add(name)
+                elif wd in [5,6]:
+                    workers["weekend"].add(name)
+                elif wd == 4:
+                    workers["friday"].add(name)
                 else:
                     workers["weekday"].add(name)
     return workers
@@ -70,44 +62,42 @@ def apply_dynamic_constraints(
     soft_penalties = []
     has_at_least_one_duty = {}
 
-    # build attribute lookups
-    row_to_name = {r: str(constraint_df.iat[r, 1]).strip().upper() for r in range(row_start, row_end + 1)}
-    name_to_branch = {}
+    # ── build attribute lookups ──
+    row_to_name = {r: str(constraint_df.iat[r,1]).strip().upper()
+                   for r in range(row_start, row_end+1)}
+    name_to_branch  = {}
     name_to_driving = {}
-    name_to_partner = {}
     for i in range(len(namelist_df)):
-        n = str(namelist_df.iloc[i, 1]).strip().upper()
-        b = str(namelist_df.iloc[i, 2]).strip().upper() if len(namelist_df.columns) > 2 else ""
-        d = str(namelist_df.iloc[i, 3]).strip().upper() if len(namelist_df.columns) > 3 else ""
-        name_to_branch[n] = b
+        n = str(namelist_df.iloc[i,1]).strip().upper()
+        b = str(namelist_df.iloc[i,2]).strip().upper() if len(namelist_df.columns)>2 else ""
+        d = str(namelist_df.iloc[i,3]).strip().upper() if len(namelist_df.columns)>3 else ""
+        name_to_branch[n]  = b
         name_to_driving[n] = d
-    for r1, r2 in partner_pairs:
-        name_to_partner[row_to_name.get(r1,"")] = row_to_name.get(r2,"")
-        name_to_partner[row_to_name.get(r2,"")] = row_to_name.get(r1,"")
 
-    # last month day type workers
-    holiday_days_old = set()  # simplified — could be extended
-    last_month_workers = _get_last_month_workers_by_day_type(
-        last_month_df, year_old, month_old, row_start, row_end, date_start_col, holiday_days_old
+    # partner row pairs already built outside
+    partner_row_set = set()
+    for r1,r2 in partner_pairs:
+        partner_row_set.add((min(r1,r2), max(r1,r2)))
+
+    # last month worked by day type
+    lm_workers = _last_month_worked(
+        last_month_df, year_old, month_old,
+        row_start, row_end, date_start_col, set()
     )
 
-    # scalefactor and sbf from model_constraints
-    scalefactor = model_constraints.get('scalefactor', 4)
-    sbf_val = model_constraints.get('sbf_val', 2)
-    hard4_default = model_constraints.get('hard4', 4)
-    hard5_default = model_constraints.get('hard5', 3)
-    hard1_default = model_constraints.get('hard1', 2)
-    hard1s_default = model_constraints.get('hard1s', 2)
-    hard2s_default = model_constraints.get('hard2s', 2)
+    # model_constraints fallbacks
+    hard4  = model_constraints.get('hard4', 4)
+    hard5  = model_constraints.get('hard5', 3)
+    hard1  = model_constraints.get('hard1', 2)
+    hard1s = model_constraints.get('hard1s', 2)
+    hard2s = model_constraints.get('hard2s', 2)
 
     for cid, cv in config.items():
         if cid.startswith("_"):
             continue
         if not cv.get("active", True):
             continue
-
-        # parse JSON rule from param field
-        param_str = cv.get("param", "")
+        param_str = cv.get("param","")
         if not param_str or not param_str.strip().startswith("{"):
             continue
         try:
@@ -115,213 +105,241 @@ def apply_dynamic_constraints(
         except:
             continue
 
-        subject    = rule.get("subject", "person")
-        assignment = rule.get("assignment", "D").upper()
-        cond_type  = rule.get("condition_type", "none")
-        cond_val   = rule.get("condition_value", "")
-        action     = rule.get("action", "")
-        action_val = rule.get("action_value", "")
-        is_soft    = rule.get("soft", False)
-        penalty    = int(rule.get("penalty", 0))
+        cls     = rule.get("class","")
+        is_soft = rule.get("soft", False)
+        penalty = int(rule.get("penalty", 0))
 
-        # resolve numeric action value
-        try:
-            action_num = int(action_val) if action_val != "" else 0
-        except:
-            action_num = 0
+        # ════════════════════════════════
+        # CLASS: VALUE
+        # ════════════════════════════════
+        if cls == "value":
+            subj1    = rule.get("subject1","person")
+            operator = rule.get("operator","=")
+            number   = int(rule.get("number", 1))
+            subj2    = rule.get("subject2","D").upper()
+            per      = rule.get("per","month")
 
-        # ── build row filter based on condition ──
-        def rows_matching_condition():
-            rows = list(range(row_start, row_end + 1))
-            if cond_type == "none":
-                return rows
-            if cond_type == "worked_day_type_last_month":
-                workers_set = last_month_workers.get(cond_val.lower(), set())
-                return [r for r in rows if row_to_name.get(r,"") in workers_set]
-            if cond_type == "person_attribute_is":
-                attr = cond_val.lower()
-                if attr == "gender=female":
-                    return [r for r in rows if is_female_pair.get(r, False)]
-                if attr == "partner":
-                    return [r for r in rows if row_to_name.get(r,"") in name_to_partner]
-                if attr == "driving_status":
-                    return rows  # all rows — filtered per action
-            return rows
+            if subj1 == "day":
+                # each day must have op N of subj2
+                if subj2 == "D":
+                    for c in range(date_start_col, date_end_col+1):
+                        day_vars = [x[(r,c)] for r in range(row_start, row_end+1)]
+                        if operator == "=":
+                            model.Add(sum(day_vars) == number)
+                        elif operator == "<=":
+                            model.Add(sum(day_vars) <= number)
+                        elif operator == ">=":
+                            if is_soft:
+                                viol = model.NewBoolVar(f"val_viol_{cid}_{c}")
+                                model.Add(sum(day_vars) >= number).OnlyEnforceIf(viol.Not())
+                                soft_penalties.append(viol * penalty)
+                            else:
+                                model.Add(sum(day_vars) >= number)
+                elif subj2 == "S" and s:
+                    for c in range(date_start_col, date_end_col+1):
+                        day_vars = [s[(r,c)] for r in range(row_start, row_end+1) if (r,c) in s]
+                        if day_vars:
+                            if operator == "=":
+                                model.Add(sum(day_vars) == number)
+                            elif operator == "<=":
+                                model.Add(sum(day_vars) <= number)
+                            elif operator == ">=":
+                                model.Add(sum(day_vars) >= number)
 
-        filtered_rows = rows_matching_condition()
+            elif subj1 == "person":
+                if per == "week" and subj2 == "D":
+                    for r in range(row_start, row_end+1):
+                        for week, cols in iso_map.items():
+                            wvars = [x[(r,c)] for c in cols
+                                     if (r,c) not in fixed_duties or c not in holiday_cols]
+                            if wvars:
+                                if operator == "<=":
+                                    model.Add(sum(wvars) <= number)
+                                elif operator == "=":
+                                    model.Add(sum(wvars) == number)
 
-        # ── apply action ──
+                elif per == "month" and subj2 == "D":
+                    for r in range(row_start, row_end+1):
+                        status_val = str(fix_assignment_df.iat[r, OFFSET_COL+1]).strip().upper()
+                        is_excl = any(k in status_val for k in exclusion_keywords)
+                        total = [x[(r,c)] for c in range(date_start_col, date_end_col+1)]
+                        if operator == "<=" and not is_soft:
+                            if is_excl:
+                                num_hol = sum(1 for c in holiday_cols if (r,c) in fixed_duties)
+                                model.Add(sum(total) == num_hol)
+                            elif is_female_pair.get(r, False):
+                                model.Add(sum(total) <= number-1)
+                            else:
+                                model.Add(sum(total) <= number)
+                        elif operator == ">=" and is_soft:
+                            has_at_least_one_duty[r] = model.NewBoolVar(f"has_duty_{cid}_{r}")
+                            ds = sum(x[(r,c)] for c in range(date_start_col, date_end_col+1) if (r,c) in x)
+                            model.Add(ds >= number).OnlyEnforceIf(has_at_least_one_duty[r])
+                            model.Add(ds == 0).OnlyEnforceIf(has_at_least_one_duty[r].Not())
+                            soft_penalties.append(has_at_least_one_duty[r].Not() * penalty)
 
-        if action == "exactly_x_per_day":
-            n = action_num if action_num > 0 else (hard1_default if assignment == "D" else hard1s_default)
-            if assignment == "D":
-                for c in range(date_start_col, date_end_col + 1):
-                    model.Add(sum(x[(r, c)] for r in range(row_start, row_end + 1)) == n)
-            elif assignment == "S" and s:
-                for c in range(date_start_col, date_end_col + 1):
-                    day_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
-                    if day_vars:
-                        model.Add(sum(day_vars) == n)
+        # ════════════════════════════════
+        # CLASS: ALLOW
+        # ════════════════════════════════
+        elif cls == "allow":
+            cond_dt   = rule.get("condition_day_type","weekend")
+            logic     = rule.get("logic","cannot")
+            action_dt = rule.get("action_day_type","weekend")
+            workers   = lm_workers.get(cond_dt.lower(), set())
 
-        elif action == "at_most_x_per_month":
-            n = action_num if action_num > 0 else hard5_default
-            for r in filtered_rows:
-                status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
-                is_excluded = any(k in status_val for k in exclusion_keywords)
-                total_vars = [x[(r, c)] for c in range(date_start_col, date_end_col + 1)]
-                if is_excluded:
-                    num_hol = sum(1 for c in holiday_cols if (r, c) in fixed_duties)
-                    model.Add(sum(total_vars) == num_hol)
-                elif is_female_pair.get(r, False):
-                    model.Add(sum(total_vars) <= n - 1)
-                else:
-                    model.Add(sum(total_vars) <= n)
+            for r in range(row_start, row_end+1):
+                name = row_to_name.get(r,"")
+                if name not in workers:
+                    continue
+                for c in range(date_start_col, date_end_col+1):
+                    if (r,c) in fixed_duties:
+                        continue
+                    dt_obj = col_to_date[c]
+                    if _matches_day_type(dt_obj, action_dt, holiday_days):
+                        if logic == "cannot" and (r,c) in x:
+                            model.Add(x[(r,c)] == 0)
+                        elif logic == "can":
+                            pass  # no restriction
 
-        elif action == "at_most_x_per_week":
-            n = action_num if action_num > 0 else 1
-            for r in filtered_rows:
-                for week, cols in iso_map.items():
-                    vars_in_week = [x[(r, c)] for c in cols if (r, c) not in fixed_duties or c not in holiday_cols]
-                    if vars_in_week:
-                        model.Add(sum(vars_in_week) <= n)
+        # ════════════════════════════════
+        # CLASS: GAP
+        # ════════════════════════════════
+        elif cls == "gap":
+            from_type = rule.get("from_type","D").upper()
+            to_type   = rule.get("to_type","D").upper()
+            days      = int(rule.get("days", hard4))
 
-        elif action == "gap_at_least_x_days":
-            gap = action_num if action_num > 0 else hard4_default
-            if assignment == "D":
-                for r in filtered_rows:
-                    name = row_to_name.get(r, "")
-                    from collections import defaultdict as dd
-                    duties_lm = dd(list)
+            if from_type == "D" and to_type == "D":
+                # cross-month and internal D-D gap
+                for r in range(row_start, row_end+1):
+                    name = row_to_name.get(r,"")
+                    # cross-month
+                    lm_duties = []
                     if last_month_df is not None and isinstance(last_month_df, pd.DataFrame):
-                        import calendar as cal_mod
                         _, lnd = cal_mod.monthrange(year_old, month_old)
-                        for c in range(date_start_col, date_start_col + lnd):
+                        for c in range(date_start_col, date_start_col+lnd):
                             try:
-                                if str(last_month_df.iat[r, c]).strip().upper() == "D":
-                                    duties_lm[name].append(c - date_start_col + 1)
+                                if str(last_month_df.iat[r,c]).strip().upper() == "D":
+                                    lm_duties.append(c - date_start_col + 1)
                             except: pass
-                    lm_list = duties_lm.get(name, [])
-                    if lm_list:
-                        last_d_num = max(lm_list)
-                        last_d_date = datetime(year_old, month_old, last_d_num)
-                        for c in range(date_start_col, date_end_col + 1):
-                            if (r, c) in fixed_duties: continue
-                            if (col_to_date[c] - last_d_date).days < gap:
-                                model.Add(x[(r, c)] == 0)
+                    if lm_duties:
+                        last_d = datetime(year_old, month_old, max(lm_duties))
+                        for c in range(date_start_col, date_end_col+1):
+                            if (r,c) in fixed_duties: continue
+                            if (col_to_date[c] - last_d).days < days:
+                                model.Add(x[(r,c)] == 0)
                             else:
                                 break
-                    for c1 in range(date_start_col, date_end_col + 1):
+                    # internal
+                    for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
-                        for c2 in range(c1 + 1, date_end_col + 1):
-                            if (r, c1) in fixed_duties or (r, c2) in fixed_duties: continue
-                            if (col_to_date[c2] - d1).days >= gap: break
-                            model.Add(x[(r, c1)] + x[(r, c2)] <= 1)
-            elif assignment == "DS" and s:
-                gap = action_num if action_num > 0 else hard2s_default
-                for r in filtered_rows:
-                    for c1 in range(date_start_col, date_end_col + 1):
+                        for c2 in range(c1+1, date_end_col+1):
+                            if (r,c1) in fixed_duties or (r,c2) in fixed_duties: continue
+                            if (col_to_date[c2]-d1).days >= days: break
+                            model.Add(x[(r,c1)] + x[(r,c2)] <= 1)
+
+            elif from_type in ("D","S") and to_type in ("D","S") and s:
+                # D-S, S-D, or S-S gaps
+                for r in range(row_start, row_end+1):
+                    for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
-                        for c2 in range(c1 + 1, date_end_col + 1):
-                            if (col_to_date[c2] - d1).days >= gap: break
-                            if planned_df is not None:
-                                try:
-                                    if planned_df.iat[r, c1] == "D" and (r, c2) in s:
-                                        model.Add(s[(r, c2)] == 0)  # type: ignore[index]
-                                    if (r, c1) in s and planned_df.iat[r, c2] == "D":
-                                        model.Add(s[(r, c1)] == 0)  # type: ignore[index]
-                                    if (r, c1) in s and (r, c2) in s:
-                                        model.Add(s[(r, c1)] + s[(r, c2)] <= gap - 1)  # type: ignore[index]
-                                except: pass
+                        for c2 in range(c1+1, date_end_col+1):
+                            if (col_to_date[c2]-d1).days >= days: break
+                            try:
+                                c1_is_d = planned_df is not None and planned_df.iat[r,c1]=="D"
+                                c2_is_d = planned_df is not None and planned_df.iat[r,c2]=="D"
+                            except: continue
+                            c1_is_s = (r,c1) in s
+                            c2_is_s = (r,c2) in s
 
-        elif action == "cannot_work_day_type":
-            for r in filtered_rows:
-                for c in range(date_start_col, date_end_col + 1):
-                    if (r, c) in fixed_duties: continue
-                    dt_obj = col_to_date[c]
-                    if _day_type_matches(dt_obj, action_val, holiday_days):
-                        if (r, c) in x:
-                            model.Add(x[(r, c)] == 0)
+                            if from_type=="D" and to_type=="S":
+                                if c1_is_d and c2_is_s:
+                                    model.Add(s[(r,c2)] == 0)
+                                if c1_is_s and c2_is_d:
+                                    model.Add(s[(r,c1)] == 0)
+                            elif from_type=="S" and to_type=="S":
+                                if c1_is_s and c2_is_s:
+                                    model.Add(s[(r,c1)] + s[(r,c2)] <= 1)
 
-        elif action == "grouped_0_or_n":
-            n = action_num if action_num > 0 else 2
-            if cond_type == "person_attribute_is" and "gender=female" in cond_val:
-                for c in range(date_start_col, date_end_col + 1):
-                    fvars = [x[(r, c)] for r in female_indices if (r, c) in x]
+        # ════════════════════════════════
+        # CLASS: GROUPING
+        # ════════════════════════════════
+        elif cls == "grouping":
+            trait  = rule.get("trait","")
+            logic  = rule.get("logic","must")
+
+            if trait == "same_gender" and logic == "must":
+                # females must be together: count is 0 or len(female_indices)
+                n = len(female_indices) if female_indices else 2
+                for c in range(date_start_col, date_end_col+1):
+                    fvars = [x[(r,c)] for r in female_indices if (r,c) in x]
                     if fvars:
-                        fc = model.NewIntVar(0, n, f"grouped_{cid}_{c}")
+                        fc = model.NewIntVar(0, n, f"fcount_{cid}_{c}")
                         model.Add(fc == sum(fvars))
-                        is_grp = model.NewBoolVar(f"is_grp_{cid}_{c}")
+                        is_grp = model.NewBoolVar(f"fgrp_{cid}_{c}")
                         model.Add(fc == n).OnlyEnforceIf(is_grp)
                         model.Add(fc == 0).OnlyEnforceIf(is_grp.Not())
 
-        elif action == "match_branch_of_d" and s:
-            from collections import Counter
-            for c in range(date_start_col, date_end_col + 1):
-                if planned_df is None: continue
-                try:
-                    d_rows_day = [r for r in range(row_start, row_end + 1) if planned_df.iat[r, c] == "D"]
-                except: continue
-                num_d = len(d_rows_day)
-                day_s_vars = [s[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in s]
-                if num_d == 0:
-                    for v in day_s_vars: model.Add(v == 0)
-                    continue
-                req_branches = []
-                for ri in d_rows_day:
-                    nm = row_to_name.get(ri, "")
-                    br = name_to_branch.get(nm, "")
-                    if br: req_branches.append(br)
-                bc = Counter(req_branches)
-                if len(day_s_vars) >= num_d:
-                    model.Add(sum(day_s_vars) == num_d)
-                for branch, rs in bc.items():
-                    bvars = [s[(r, c)] for r in branch_to_row.get(branch, []) if (r, c) in s]
-                    if len(bvars) >= rs:
-                        model.Add(sum(bvars) == rs)
-                for branch, rows_b in branch_to_row.items():
-                    if branch not in bc:
-                        for r in rows_b:
-                            if (r, c) in s: model.Add(s[(r, c)] == 0)
+            elif trait == "same_branch" and logic == "must_match_d" and s:
+                # S must match D branch on same day
+                from collections import Counter
+                for c in range(date_start_col, date_end_col+1):
+                    if planned_df is None: continue
+                    try:
+                        d_rows_day = [r for r in range(row_start, row_end+1)
+                                      if planned_df.iat[r,c]=="D"]
+                    except: continue
+                    num_d = len(d_rows_day)
+                    day_s_vars = [s[(r,c)] for r in range(row_start, row_end+1) if (r,c) in s]
+                    if num_d == 0:
+                        for v in day_s_vars: model.Add(v==0)
+                        continue
+                    req_br = []
+                    for ri in d_rows_day:
+                        nm = row_to_name.get(ri,"")
+                        br = name_to_branch.get(nm,"")
+                        if br: req_br.append(br)
+                    bc = Counter(req_br)
+                    if len(day_s_vars) >= num_d:
+                        model.Add(sum(day_s_vars) == num_d)
+                    for branch, rs in bc.items():
+                        bvars = [s[(r,c)] for r in branch_to_row.get(branch,[]) if (r,c) in s]
+                        if len(bvars) >= rs:
+                            model.Add(sum(bvars) == rs)
+                    for branch, rows_b in branch_to_row.items():
+                        if branch not in bc:
+                            for r in rows_b:
+                                if (r,c) in s: model.Add(s[(r,c)]==0)
 
-        elif action == "prefer_together":
-            if action_val == "partner":
-                for r1, r2 in partner_pairs:
-                    for c in range(date_start_col, date_end_col + 1):
-                        if (r1, c) in x and (r2, c) in x:
+            elif trait == "partners" and logic == "must":
+                for r1,r2 in partner_pairs:
+                    for c in range(date_start_col, date_end_col+1):
+                        if (r1,c) in x and (r2,c) in x:
                             is_split = model.NewBoolVar(f"split_{cid}_{r1}_{r2}_{c}")
-                            model.Add(x[(r1, c)] - x[(r2, c)] <= is_split)
-                            model.Add(x[(r2, c)] - x[(r1, c)] <= is_split)
+                            model.Add(x[(r1,c)]-x[(r2,c)] <= is_split)
+                            model.Add(x[(r2,c)]-x[(r1,c)] <= is_split)
                             soft_penalties.append(is_split * penalty)
 
-        elif action == "prefer_different":
-            if action_val == "branch":
-                for c in range(date_start_col, date_end_col + 1):
+            elif trait == "same_branch" and logic == "cannot":
+                for c in range(date_start_col, date_end_col+1):
                     for branch, rows_b in branch_to_row.items():
-                        bvars = [x[(r, c)] for r in rows_b if (r, c) in x]
+                        bvars = [x[(r,c)] for r in rows_b if (r,c) in x]
                         if len(bvars) >= 2:
-                            viol = model.NewBoolVar(f"branch_viol_{cid}_{branch}_{c}")
+                            viol = model.NewBoolVar(f"br_viol_{cid}_{branch}_{c}")
                             model.Add(sum(bvars) < 2).OnlyEnforceIf(viol.Not())
                             model.Add(sum(bvars) == 2).OnlyEnforceIf(viol)
                             soft_penalties.append(viol * penalty)
 
-        elif action == "prefer_balanced_mix":
-            if action_val == "driving_status":
-                for c in range(date_start_col, date_end_col + 1):
-                    drivers = [x[(r, c)] for r in range(row_start, row_end + 1) if (r, c) in x and r in is_driver]
+            elif trait == "drivers" and logic == "cannot":
+                for c in range(date_start_col, date_end_col+1):
+                    drivers = [x[(r,c)] for r in range(row_start, row_end+1)
+                               if (r,c) in x and r in is_driver]
                     if drivers:
-                        dc = model.NewIntVar(0, 2, f"dcount_{cid}_{c}")
+                        dc = model.NewIntVar(0, len(drivers), f"dcount_{cid}_{c}")
                         model.Add(dc == sum(drivers))
                         mm = model.NewBoolVar(f"dmm_{cid}_{c}")
                         model.Add(dc != 1).OnlyEnforceIf(mm)
                         model.Add(dc == 1).OnlyEnforceIf(mm.Not())
                         soft_penalties.append(mm * penalty)
-
-        elif action == "at_least_1_per_month":
-            for r in filtered_rows:
-                has_at_least_one_duty[r] = model.NewBoolVar(f"has_duty_{cid}_{r}")
-                ds = sum(x[(r, c)] for c in range(date_start_col, date_end_col + 1) if (r, c) in x)
-                model.Add(ds >= 1).OnlyEnforceIf(has_at_least_one_duty[r])
-                model.Add(ds == 0).OnlyEnforceIf(has_at_least_one_duty[r].Not())
-                soft_penalties.append(has_at_least_one_duty[r].Not() * penalty)
 
     return soft_penalties, has_at_least_one_duty
