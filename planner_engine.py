@@ -204,7 +204,7 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
     next_ws.batch_update(updates)
     return next_name, next_spreadsheet_name
 
-def run_optimisation(data_bundle, config, point_allocations, model_constraints):
+def run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides=None):
     # --------------------------------------------------
     # SETUP AND DATA EXTRACTION
     # --------------------------------------------------
@@ -539,7 +539,8 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
         name_to_row=name_to_row, branch_to_row=branch_to_row,
         is_driver=is_driver, partner_pairs=partner_pairs,
         OFFSET_COL=OFFSET_COL, SCALE=SCALE,
-        model_constraints=model_constraints
+        model_constraints=model_constraints,
+        slider_overrides=slider_overrides or {}
     )
 
     # --------------------------------------------------
@@ -854,7 +855,8 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints):
         name_to_row=name_to_row, branch_to_row=branch_to_row,
         is_driver=is_driver, partner_pairs=partner_pairs,
         OFFSET_COL=OFFSET_COL, SCALE=SCALE,
-        model_constraints=model_constraints
+        model_constraints=model_constraints,
+        slider_overrides=slider_overrides or {}
     )
 
     # count the number of S and ensure it doesnt not exceed 5

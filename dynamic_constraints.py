@@ -56,7 +56,8 @@ def apply_dynamic_constraints(
     exclusion_keywords, is_female_pair, female_indices,
     name_to_row, branch_to_row, is_driver, partner_pairs,
     OFFSET_COL, SCALE,
-    model_constraints
+    model_constraints,
+    slider_overrides=None
 ):
     import pandas as pd
     soft_penalties = []
@@ -92,6 +93,9 @@ def apply_dynamic_constraints(
     hard1s = model_constraints.get('hard1s', 2)
     hard2s = model_constraints.get('hard2s', 2)
 
+    if slider_overrides is None:
+        slider_overrides = {}
+
     for cid, cv in config.items():
         if cid.startswith("_"):
             continue
@@ -104,6 +108,17 @@ def apply_dynamic_constraints(
             rule = json.loads(param_str)
         except:
             continue
+
+        # apply slider override — override numeric param at runtime
+        if cid in slider_overrides:
+            override_val = slider_overrides[cid]
+            cls_check = rule.get("class","")
+            if cls_check == "value":
+                rule["number"] = override_val
+            elif cls_check == "gap":
+                rule["days"] = override_val
+            elif cls_check in ("grouping","allow"):
+                rule["penalty"] = override_val
 
         cls     = rule.get("class","")
         is_soft = rule.get("soft", False)

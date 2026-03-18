@@ -281,56 +281,87 @@ if role == 'Admin':
 
         st.sidebar.title("📅 Planning Settings")
 
-        st.sidebar.subheader("⚖️ Soft Constraint Weights")
-
-        col_slider, col_input = st.sidebar.columns([3, 1])
-
-        # load CONFIG sheet once for this page
-        try:
-            _dbg_client = get_gspread_auth()
-            _dbg_cfg = fetch_config(_dbg_client, "MASTER SHEET")
-        except Exception as e:
-            st.write("Config error:", str(e))
-        
+        # ── Load CONFIG sheet ──
         _cfg_client = get_gspread_auth()
         sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
+        config = sheet_cfg
 
-        def _cfg_param(cid, fallback):
+        # ── Dynamic constraint sliders from CONFIG ──
+        # slider_overrides: cid -> numeric value (overrides CONFIG param at runtime)
+        slider_overrides = {}
+
+        def _get_rule_num(cv):
+            """Extract the primary numeric param from a rule."""
+            import json as _j
             try:
-                v = sheet_cfg.get(cid, {}).get("param", "")
-                return type(fallback)(v) if v != "" else fallback
-            except:
-                return fallback
+                rule = cv.get("rule", {})
+                cls = rule.get("class","")
+                if cls == "value":   return int(rule.get("number", 1))
+                if cls == "gap":     return int(rule.get("days", 1))
+                if cls == "grouping" or cls == "allow": return int(rule.get("penalty", 0))
+            except: pass
+            return None
 
-        if "S1_slider" not in st.session_state:
-            _d = _cfg_param("SC1", 100)
-            st.session_state["S1_slider"] = _d; st.session_state["S1_input"] = _d
-        if "S2_slider" not in st.session_state:
-            _d = _cfg_param("SC2", 60)
-            st.session_state["S2_slider"] = _d; st.session_state["S2_input"] = _d
-        if "S3_slider" not in st.session_state:
-            _d = _cfg_param("SC3", 10)
-            st.session_state["S3_slider"] = _d; st.session_state["S3_input"] = _d
-        if "S4_slider" not in st.session_state:
-            _d = _cfg_param("SC4", 400)
-            st.session_state["S4_slider"] = _d; st.session_state["S4_input"] = _d
+        def _get_rule_num_label(cv):
+            """Human label for the numeric param."""
+            try:
+                rule = cv.get("rule", {})
+                cls = rule.get("class","")
+                if cls == "value":   return cv.get("label","") + " (number)"
+                if cls == "gap":     return cv.get("label","") + " (days)"
+                if cls in ("grouping","allow"): return cv.get("label","") + " (penalty)"
+            except: pass
+            return cv.get("label","")
 
-        with col_slider:
-            s1_val = st.slider("Follow Pairings", 0, 500, key="S1_slider", on_change=update_input, args=("S1",), step=10)
-            s2_val = st.slider("Different Branches", 0, 500, key="S2_slider", on_change=update_input, args=("S2",), step=10)
-            s3_val = st.slider("Driver Mix", 0, 500, key="S3_slider", on_change=update_input, args=("S3",), step=10)
-            s4_val = st.slider("Minimum 1x D", 0, 500, key="S4_slider", on_change=update_input, args=("S4",), step=10)
+        hard_constraints = {k: v for k, v in sheet_cfg.items()
+                            if not k.startswith("_") and v.get("type","").lower() == "hard"
+                            and v.get("active", True)}
+        soft_constraints = {k: v for k, v in sheet_cfg.items()
+                            if not k.startswith("_") and v.get("type","").lower() == "soft"
+                            and v.get("active", True)}
 
-        with col_input:
-            s1_manual = st.number_input("Label", 0, 500, key="S1_input", on_change=update_slider, args=("S1",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            s2_manual = st.number_input("Label", 0, 500, key="S2_input", on_change=update_slider, args=("S2",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            s3_manual = st.number_input("Label", 0, 500, key="S3_input", on_change=update_slider, args=("S3",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            s4_manual = st.number_input("Label", 0, 500, key="S4_input", on_change=update_slider, args=("S4",), label_visibility="collapsed")
+        st.sidebar.subheader("🔒 Hard Constraints")
+        for cid, cv in hard_constraints.items():
+            default_num = _get_rule_num(cv)
+            if default_num is not None:
+                sk = f"dyn_slider_{cid}"
+                if sk not in st.session_state:
+                    st.session_state[sk] = default_num
+                col_s, col_n = st.sidebar.columns([3, 1])
+                with col_s:
+                    max_val = max(default_num * 3, 20)
+                    val = st.slider(cv.get("label", cid), 0, max_val,
+                                    key=sk, step=1)
+                with col_n:
+                    val = st.number_input("v", 0, max_val, key=f"dyn_input_{cid}",
+                                          value=st.session_state[sk],
+                                          label_visibility="collapsed")
+                    st.session_state[sk] = val
+                slider_overrides[cid] = val
+            else:
+                st.sidebar.caption(f"✅ {cv.get('label', cid)}")
 
-        config = sheet_cfg  # full constraint config from CONFIG sheet
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔓 Soft Constraints")
+        for cid, cv in soft_constraints.items():
+            default_num = _get_rule_num(cv)
+            if default_num is not None:
+                sk = f"dyn_slider_{cid}"
+                if sk not in st.session_state:
+                    st.session_state[sk] = default_num
+                col_s, col_n = st.sidebar.columns([3, 1])
+                with col_s:
+                    max_val = max(default_num * 3, 100)
+                    val = st.slider(cv.get("label", cid), 0, max_val,
+                                    key=sk, step=10)
+                with col_n:
+                    val = st.number_input("v", 0, max_val, key=f"dyn_input_{cid}",
+                                          value=st.session_state[sk],
+                                          label_visibility="collapsed")
+                    st.session_state[sk] = val
+                slider_overrides[cid] = val
+            else:
+                st.sidebar.caption(f"✅ {cv.get('label', cid)}")
 
         st.sidebar.markdown("---")
         st.sidebar.subheader("💯 Point Allocations")
@@ -351,83 +382,45 @@ if role == 'Admin':
             st.session_state["holiday_input"] = 2.0
 
         with col_slider:
-            weekday_val = st.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", on_change=update_input, args=("weekday",), step=0.5)
-            friday_val = st.slider("Friday Points", 0.0, 10.0, key="friday_slider", on_change=update_input, args=("friday",), step=0.5)
-            weekend_val = st.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", on_change=update_input, args=("weekend",), step=0.5)
-            holiday_val = st.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", on_change=update_input, args=("holiday",), step=0.5)
+            weekday_val = st.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", step=0.5)
+            friday_val  = st.slider("Friday Points",  0.0, 10.0, key="friday_slider",  step=0.5)
+            weekend_val = st.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", step=0.5)
+            holiday_val = st.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", step=0.5)
 
         with col_input:
-            weekday_manual = st.number_input("Label", 0.0, 10.0, key="weekday_input", on_change=update_slider, args=("weekday",), label_visibility="collapsed")
+            st.number_input("wv", 0.0, 10.0, key="weekday_input", label_visibility="collapsed")
             st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            friday_manual = st.number_input("Label", 0.0, 10.0, key="friday_input", on_change=update_slider, args=("friday",), label_visibility="collapsed")
+            st.number_input("fv", 0.0, 10.0, key="friday_input",  label_visibility="collapsed")
             st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            weekend_manual = st.number_input("Label", 0.0, 10.0, key="weekend_input", on_change=update_slider, args=("weekend",), label_visibility="collapsed")
+            st.number_input("wev", 0.0, 10.0, key="weekend_input", label_visibility="collapsed")
             st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            holiday_manual = st.number_input("Label", 0.0, 10.0, key="holiday_input", on_change=update_slider, args=("holiday",), label_visibility="collapsed")
+            st.number_input("hv", 0.0, 10.0, key="holiday_input", label_visibility="collapsed")
 
         point_allocations = {
             "weekday_points": weekday_val,
-            "friday_points": friday_val,
+            "friday_points":  friday_val,
             "weekend_points": weekend_val,
             "holiday_points": holiday_val
         }
 
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🔓 Model Constraints")
-
+        st.sidebar.subheader("⚙️ Optimiser Settings")
         col_slider, col_input = st.sidebar.columns([3, 1])
-
-        if "hard1_slider" not in st.session_state:
-            _d = _cfg_param("HC1", 2)
-            st.session_state["hard1_slider"] = _d; st.session_state["hard1_input"] = _d
-        if "hard5_slider" not in st.session_state:
-            _d = _cfg_param("HC5", 3)
-            st.session_state["hard5_slider"] = _d; st.session_state["hard5_input"] = _d
-        if "hard1s_slider" not in st.session_state:
-            _d = _cfg_param("HC1S", 2)
-            st.session_state["hard1s_slider"] = _d; st.session_state["hard1s_input"] = _d
-        if "hard2s_slider" not in st.session_state:
-            _d = _cfg_param("HC2S", 2)
-            st.session_state["hard2s_slider"] = _d; st.session_state["hard2s_input"] = _d
         if "scalefactor_slider" not in st.session_state:
             st.session_state["scalefactor_slider"] = 4
-            st.session_state["scalefactor_input"] = 4
         if "sbf_slider" not in st.session_state:
             st.session_state["sbf_slider"] = 2
-            st.session_state["sbf_input"] = 2
-
         with col_slider:
-            hard1_val = st.slider("Number of Duties Per Day", 0, 4, key="hard1_slider", on_change=update_input, args=("hard1",), step=1)
-            hard4_val = st.slider("Gap Between Duties", 0, 10, key="hard4_slider", on_change=update_input, args=("hard4",), step=1)
-            hard5_val = st.slider("Maximum No. of Duties", 0, 5, key="hard5_slider", on_change=update_input, args=("hard5",), step=1)
-            hard1s_val = st.slider("Number of Standbys Per Day", 0, 4, key="hard1s_slider", on_change=update_input, args=("hard1s",), step=1)
-            hard2s_val = st.slider("Gap between S and/or D", 0, 10, key="hard2s_slider", on_change=update_input, args=("hard2s",), step=1)
-            scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", on_change=update_input, args=("scalefactor",), step=1)
-            sbf_val = st.slider("SB Bonus", 0, 5, key="sbf_slider", on_change=update_input, args=("sbf",), step=1)
-
+            scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", step=1)
+            sbf_val         = st.slider("SB Bonus",            0, 5, key="sbf_slider",         step=1)
         with col_input:
-            hard1_manual = st.number_input("Label", 0, 4, key="hard1_input", on_change=update_slider, args=("hard1",), label_visibility="collapsed")
+            st.number_input("sfv", 0, 5, key="scalefactor_input", label_visibility="collapsed")
             st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            hard4_manual = st.number_input("Label", 0, 10, key="hard4_input", on_change=update_slider, args=("hard4",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            hard5_manual = st.number_input("Label", 0, 5, key="hard5_input", on_change=update_slider, args=("hard5",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            hard1s_manual = st.number_input("Label", 0, 4, key="hard1s_input", on_change=update_slider, args=("hard1s",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            hard2s_manual = st.number_input("Label", 0, 10, key="hard2s_input", on_change=update_slider, args=("hard2s",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            scalefactor_manual = st.number_input("Label", 0, 5, key="scalefactor_input", on_change=update_slider, args=("scalefactor",), label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            sbf_manual = st.number_input("Label", 0, 5, key="sbf_input", on_change=update_slider, args=("sbf",), label_visibility="collapsed")
+            st.number_input("sbv", 0, 5, key="sbf_input",         label_visibility="collapsed")
 
         model_constraints = {
-            "hard1": hard1_val,
-            "hard4": hard4_val,
-            "hard5": hard5_val,
-            "hard1s": hard1s_val,
-            "hard2s": hard2s_val,
             "scalefactor": scalefactor_val,
-            "sbf_val": sbf_val
+            "sbf_val":     sbf_val
         }
 
         # main interface
@@ -531,7 +524,7 @@ if role == 'Admin':
                             "carry_scale": carry_scale
                         }
 
-                        planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints)
+                        planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides)
 
                         if planned_df is not None:
                             st.session_state['planned_df'] = planned_df
