@@ -291,16 +291,19 @@ if role == 'Admin':
         slider_overrides = {}
 
         def _get_rule_num(cv):
-            """Extract the primary numeric param from a rule."""
             import json as _j
             try:
                 rule = cv.get("rule", {})
-                cls = rule.get("class","")
+                cls  = rule.get("class","")
+                soft = rule.get("soft", False)
                 if cls == "value":   return int(rule.get("number", 1))
                 if cls == "gap":     return int(rule.get("days", 1))
-                if cls == "grouping" or cls == "allow": return int(rule.get("penalty", 0))
-            except: pass
-            return None
+                if cls in ("grouping","allow") and soft:
+                    return int(rule.get("penalty", 0))
+                # hard grouping and hard allow have no adjustable param
+                return None
+            except:
+                return None
 
         def _get_rule_num_label(cv):
             """Human label for the numeric param."""
@@ -325,18 +328,10 @@ if role == 'Admin':
             default_num = _get_rule_num(cv)
             if default_num is not None:
                 sk = f"dyn_slider_{cid}"
-                if sk not in st.session_state:
-                    st.session_state[sk] = default_num
-                col_s, col_n = st.sidebar.columns([3, 1])
-                with col_s:
-                    max_val = max(default_num * 3, 20)
-                    val = st.slider(cv.get("label", cid), 0, max_val,
-                                    key=sk, step=1)
-                with col_n:
-                    val = st.number_input("v", 0, max_val, key=f"dyn_input_{cid}",
-                                          value=st.session_state[sk],
-                                          label_visibility="collapsed")
-                    st.session_state[sk] = val
+                max_val = max(default_num * 3, 20)
+                val = st.sidebar.slider(cv.get("label", cid), 0, max_val,
+                                        value=st.session_state.get(sk, default_num),
+                                        key=sk, step=1)
                 slider_overrides[cid] = val
             else:
                 st.sidebar.caption(f"✅ {cv.get('label', cid)}")
@@ -347,18 +342,10 @@ if role == 'Admin':
             default_num = _get_rule_num(cv)
             if default_num is not None:
                 sk = f"dyn_slider_{cid}"
-                if sk not in st.session_state:
-                    st.session_state[sk] = default_num
-                col_s, col_n = st.sidebar.columns([3, 1])
-                with col_s:
-                    max_val = max(default_num * 3, 100)
-                    val = st.slider(cv.get("label", cid), 0, max_val,
-                                    key=sk, step=10)
-                with col_n:
-                    val = st.number_input("v", 0, max_val, key=f"dyn_input_{cid}",
-                                          value=st.session_state[sk],
-                                          label_visibility="collapsed")
-                    st.session_state[sk] = val
+                max_val = max(default_num * 3, 100)
+                val = st.sidebar.slider(cv.get("label", cid), 0, max_val,
+                                        value=st.session_state.get(sk, default_num),
+                                        key=sk, step=10)
                 slider_overrides[cid] = val
             else:
                 st.sidebar.caption(f"✅ {cv.get('label', cid)}")
@@ -1715,9 +1702,9 @@ if role == 'User':
     
         # initialize session state for date history if not present
         if 'hist_constraints' not in st.session_state:
-            st.session_state.hist_constraints = []
+            st.session_state.hist_constraints = set()
         if 'hist_preferences' not in st.session_state:
-            st.session_state.hist_preferences = []
+            st.session_state.hist_preferences = set()
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
         view_mmyy = st.selectbox("Month (MMYY)", options=_opts, key="view_mmyy")
