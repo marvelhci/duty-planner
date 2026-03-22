@@ -754,6 +754,134 @@ if role == 'Admin':
                         st.error(f"❌ Failed to remove person: {e}")
                         st.code(traceback.format_exc())
 
+        # --------------------------------------------------
+        # HOLIDAY UPLOAD
+        # --------------------------------------------------
+        st.markdown("---")
+        st.subheader("🗓️ Upload Public Holidays")
+
+        with st.container(border=True):
+            uploaded_ics = st.file_uploader("Upload .ics file", type=["ics"], key="ics_uploader")
+
+            if uploaded_ics:
+                try:
+                    from datetime import date as _date, timedelta as _td
+                    content_ics = uploaded_ics.read().decode("utf-8")
+                    lines = content_ics.splitlines()
+
+                    holidays = []
+                    current_date = None
+                    current_name = None
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith("DTSTART"):
+                            date_str = line.split(":")[-1].strip()
+                            try:
+                                current_date = _date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+                            except:
+                                current_date = None
+                        elif line.startswith("SUMMARY"):
+                            current_name = line.split(":", 1)[-1].strip()
+                        elif line == "END:VEVENT":
+                            if current_date and current_name:
+                                holidays.append((current_date, current_name))
+                                if current_date.weekday() == 6:
+                                    holidays.append((current_date + _td(days=1), f"{current_name} (in lieu)"))
+                            current_date = None
+                            current_name = None
+                    if holidays:
+                        # get year from first holiday
+                        yr = holidays[0][0].year
+
+                        # New Year's Eve — always 31 Dec
+                        holidays.append((_date(yr, 12, 31), "NEW YEAR'S EVE"))
+
+                        # Christmas Eve — always 24 Dec
+                        holidays.append((_date(yr, 12, 24), "CHRISTMAS EVE"))
+
+                        # CNY Eve — one day before the first CNY holiday
+                        cny_names = ["chinese new year", "cny"]
+                        cny_dates = sorted([
+                            h[0] for h in holidays
+                            if any(c in h[1].lower() for c in cny_names)
+                        ])
+                        if cny_dates:
+                            cny_eve = cny_dates[0] - _td(days=1)
+                            holidays.append((cny_eve, "CHINESE NEW YEAR EVE"))
+
+                    holidays.sort(key=lambda h: h[0])
+
+                    preview_df = pd.DataFrame([
+                        {"Date": h[0].strftime("%Y-%m-%d"),
+                         "Day": h[0].strftime("%A"),
+                         "Holiday": h[1]}
+                        for h in holidays
+                    ])
+                    st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                    st.caption(f"{len(holidays)} holidays (including in lieu days)")
+
+                    if st.button("📥 Write to Holiday Sheet", use_container_width=True, key="write_holidays"):
+                        try:
+                            sh_hol = convert_if_excel(client, spreadsheet_name)
+                            hol_ws = sh_hol.worksheet("Holiday")
+
+                            hol_data = hol_ws.get_all_values()
+                            last_data_row = len(hol_data)
+                            start_row = last_data_row + 1
+                            end_row = start_row + len(holidays) - 1
+                            sheet_id = hol_ws.id
+                            n = len(holidays)
+
+                            # 1. insert blank rows
+                            sh_hol.batch_update({"requests": [{
+                                "insertDimension": {
+                                    "range": {
+                                        "sheetId": sheet_id,
+                                        "dimension": "ROWS",
+                                        "startIndex": last_data_row,
+                                        "endIndex": last_data_row + n
+                                    },
+                                    "inheritFromBefore": True
+                                }
+                            }]})
+
+                            # 2. copy format from last existing data row into new rows
+                            sh_hol.batch_update({"requests": [{
+                                "copyPaste": {
+                                    "source": {
+                                        "sheetId": sheet_id,
+                                        "startRowIndex": last_data_row - 1,
+                                        "endRowIndex": last_data_row,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": 5
+                                    },
+                                    "destination": {
+                                        "sheetId": sheet_id,
+                                        "startRowIndex": last_data_row,
+                                        "endRowIndex": last_data_row + n,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": 5
+                                    },
+                                    "pasteType": "PASTE_FORMAT",
+                                    "pasteOrientation": "NORMAL"
+                                }
+                            }]})
+
+                            # 3. write values
+                            rows_to_write = [
+                                [h[1].upper(), h[0].strftime("%-d %b %Y"), h[0].strftime("%a"), "", ""]
+                                for h in holidays
+                            ]
+                            hol_ws.update(f"A{start_row}:E{end_row}", rows_to_write)
+                            st.success(f"✅ Written {n} holidays to Holiday sheet!")
+
+                        except Exception as e:
+                            st.error(f"❌ Failed to write holidays: {e}")
+                            st.code(traceback.format_exc())
+
+                except Exception as e:
+                    st.error(f"❌ Failed to parse ICS file: {e}")
+
     if admin_page == "✏️ Editing":
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
