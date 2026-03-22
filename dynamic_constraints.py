@@ -134,6 +134,9 @@ def apply_dynamic_constraints(
             subj2    = rule.get("subject2","D").upper()
             per      = rule.get("per","month")
 
+            if subj2 == "D" and not x:
+                continue
+
             if subj1 == "day":
                 # each day must have op N of subj2
                 if subj2 == "D":
@@ -202,6 +205,9 @@ def apply_dynamic_constraints(
             action_dt = rule.get("action_day_type","weekend")
             workers   = lm_workers.get(cond_dt.lower(), set())
 
+            if not x:
+                continue
+
             for r in range(row_start, row_end+1):
                 name = row_to_name.get(r,"")
                 if name not in workers:
@@ -223,6 +229,9 @@ def apply_dynamic_constraints(
             from_type = rule.get("from_type","D").upper()
             to_type   = rule.get("to_type","D").upper()
             days      = int(rule.get("days", hard4))
+
+            if from_type == "D" and to_type == "D" and not x:
+                continue
 
             if from_type == "D" and to_type == "D":
                 # cross-month and internal D-D gap
@@ -282,6 +291,9 @@ def apply_dynamic_constraints(
         elif cls == "grouping":
             trait  = rule.get("trait","")
             logic  = rule.get("logic","must")
+
+            if not s and rule.get("duty_type","D").upper() == "S":
+                continue
 
             if trait == "same_gender" and logic == "must":
                 # females must be together: count is 0 or len(female_indices)
