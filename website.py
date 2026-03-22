@@ -755,12 +755,16 @@ if role == 'Admin':
                         st.code(traceback.format_exc())
 
         # --------------------------------------------------
-        # HOLIDAY UPLOAD
+        # --------------------------------------------------
+        # HOLIDAY SECTION
         # --------------------------------------------------
         st.markdown("---")
-        st.subheader("🗓️ Upload Public Holidays")
+        st.subheader("🗓️ Holiday Management")
 
-        with st.container(border=True):
+        hol_tab1, hol_tab2 = st.tabs(["📥 Upload Holidays", "👥 Assign Duty"])
+
+        # ── Tab 1: Upload ICS ──
+        with hol_tab1:
             uploaded_ics = st.file_uploader("Upload .ics file", type=["ics"], key="ics_uploader")
 
             if uploaded_ics:
@@ -789,42 +793,29 @@ if role == 'Admin':
                                     holidays.append((current_date + _td(days=1), f"{current_name} (in lieu)"))
                             current_date = None
                             current_name = None
+
                     if holidays:
-                        # get year from first holiday
                         yr = holidays[0][0].year
-
-                        # New Year's Eve — always 31 Dec
                         holidays.append((_date(yr, 12, 31), "NEW YEAR'S EVE"))
-
-                        # Christmas Eve — always 24 Dec
                         holidays.append((_date(yr, 12, 24), "CHRISTMAS EVE"))
-
-                        # CNY Eve — one day before the first CNY holiday
                         cny_names = ["chinese new year", "cny"]
-                        cny_dates = sorted([
-                            h[0] for h in holidays
-                            if any(c in h[1].lower() for c in cny_names)
-                        ])
+                        cny_dates = sorted([h[0] for h in holidays if any(c in h[1].lower() for c in cny_names)])
                         if cny_dates:
-                            cny_eve = cny_dates[0] - _td(days=1)
-                            holidays.append((cny_eve, "CHINESE NEW YEAR EVE"))
+                            holidays.append((cny_dates[0] - _td(days=1), "CHINESE NEW YEAR EVE"))
 
                     holidays.sort(key=lambda h: h[0])
 
                     preview_df = pd.DataFrame([
-                        {"Date": h[0].strftime("%Y-%m-%d"),
-                         "Day": h[0].strftime("%A"),
-                         "Holiday": h[1]}
+                        {"Date": h[0].strftime("%-d %b %Y"), "Day": h[0].strftime("%a"), "Holiday": h[1].upper()}
                         for h in holidays
                     ])
                     st.dataframe(preview_df, use_container_width=True, hide_index=True)
-                    st.caption(f"{len(holidays)} holidays (including in lieu days)")
+                    st.caption(f"{len(holidays)} holidays (including eves and in lieu days)")
 
                     if st.button("📥 Write to Holiday Sheet", use_container_width=True, key="write_holidays"):
                         try:
                             sh_hol = convert_if_excel(client, spreadsheet_name)
                             hol_ws = sh_hol.worksheet("Holiday")
-
                             hol_data = hol_ws.get_all_values()
                             last_data_row = len(hol_data)
                             start_row = last_data_row + 1
@@ -832,47 +823,31 @@ if role == 'Admin':
                             sheet_id = hol_ws.id
                             n = len(holidays)
 
-                            # 1. insert blank rows
                             sh_hol.batch_update({"requests": [{
                                 "insertDimension": {
-                                    "range": {
-                                        "sheetId": sheet_id,
-                                        "dimension": "ROWS",
-                                        "startIndex": last_data_row,
-                                        "endIndex": last_data_row + n
-                                    },
+                                    "range": {"sheetId": sheet_id, "dimension": "ROWS",
+                                              "startIndex": last_data_row, "endIndex": last_data_row + n},
                                     "inheritFromBefore": True
                                 }
                             }]})
-
-                            # 2. copy format from last existing data row into new rows
                             sh_hol.batch_update({"requests": [{
                                 "copyPaste": {
-                                    "source": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": last_data_row - 1,
-                                        "endRowIndex": last_data_row,
-                                        "startColumnIndex": 0,
-                                        "endColumnIndex": 5
-                                    },
-                                    "destination": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": last_data_row,
-                                        "endRowIndex": last_data_row + n,
-                                        "startColumnIndex": 0,
-                                        "endColumnIndex": 5
-                                    },
-                                    "pasteType": "PASTE_FORMAT",
-                                    "pasteOrientation": "NORMAL"
+                                    "source": {"sheetId": sheet_id,
+                                               "startRowIndex": last_data_row - 1, "endRowIndex": last_data_row,
+                                               "startColumnIndex": 0, "endColumnIndex": 5},
+                                    "destination": {"sheetId": sheet_id,
+                                                    "startRowIndex": last_data_row, "endRowIndex": last_data_row + n,
+                                                    "startColumnIndex": 0, "endColumnIndex": 5},
+                                    "pasteType": "PASTE_FORMAT", "pasteOrientation": "NORMAL"
                                 }
                             }]})
 
-                            # 3. write values
                             rows_to_write = [
                                 [h[1].upper(), h[0].strftime("%-d %b %Y"), h[0].strftime("%a"), "", ""]
                                 for h in holidays
                             ]
                             hol_ws.update(f"A{start_row}:E{end_row}", rows_to_write)
+                            fetch_sheet_data.clear()
                             st.success(f"✅ Written {n} holidays to Holiday sheet!")
 
                         except Exception as e:
@@ -881,6 +856,183 @@ if role == 'Admin':
 
                 except Exception as e:
                     st.error(f"❌ Failed to parse ICS file: {e}")
+
+        # ── Tab 2: Assign Duty ──
+        with hol_tab2:
+            try:
+                # load holiday sheet and namelist
+                hol_raw = fetch_sheet_data(client, spreadsheet_name, "Holiday")
+                all_names = fetch_namelist(client, spreadsheet_name)
+
+                if not hol_raw or len(hol_raw) < 2:
+                    st.caption("No holidays found in Holiday sheet.")
+                else:
+                    # identify female names (contain "(F)")
+                    female_names = [n for n in all_names if "(F)" in n.upper()]
+
+                    # parse holiday rows: col A=name, B=date, C=day, D=name1, E=name2
+                    # filter to selected year from mmyy
+                    target_year = 2000 + int(mmyy[2:])
+
+                    hol_rows = []
+                    for i, row in enumerate(hol_raw[1:], start=2):  # skip header, track sheet row
+                        if not row or not row[0].strip():
+                            continue
+                        hol_name = row[0].strip()
+                        hol_date_str = row[1].strip() if len(row) > 1 else ""
+                        hol_day = row[2].strip() if len(row) > 2 else ""
+                        existing_n1 = row[3].strip() if len(row) > 3 else ""
+                        existing_n2 = row[4].strip() if len(row) > 4 else ""
+
+                        # parse date to check year
+                        hol_date = None
+                        for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
+                            try:
+                                from datetime import datetime as _dt
+                                hol_date = _dt.strptime(hol_date_str, fmt).date()
+                                break
+                            except:
+                                continue
+
+                        if hol_date and hol_date.year == target_year:
+                            hol_rows.append({
+                                "sheet_row": i,
+                                "name": hol_name,
+                                "date": hol_date,
+                                "date_str": hol_date_str,
+                                "day": hol_day,
+                                "n1": existing_n1,
+                                "n2": existing_n2,
+                            })
+
+                    if not hol_rows:
+                        st.caption(f"No holidays found for {target_year}. Upload holidays first.")
+                    else:
+                        # build "did holiday last year" lookup from same sheet
+                        # look for rows with same month/day but previous year
+                        last_year = target_year - 1
+                        last_year_workers = set()
+                        for row in hol_raw[1:]:
+                            if not row or not row[0].strip():
+                                continue
+                            hol_date_str_ly = row[1].strip() if len(row) > 1 else ""
+                            n1_ly = row[3].strip() if len(row) > 3 else ""
+                            n2_ly = row[4].strip() if len(row) > 4 else ""
+                            hol_date_ly = None
+                            for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
+                                try:
+                                    from datetime import datetime as _dt2
+                                    hol_date_ly = _dt2.strptime(hol_date_str_ly, fmt).date()
+                                    break
+                                except:
+                                    continue
+                            if hol_date_ly and hol_date_ly.year == last_year:
+                                if n1_ly: last_year_workers.add(n1_ly.upper())
+                                if n2_ly: last_year_workers.add(n2_ly.upper())
+
+                        st.caption(f"Showing {len(hol_rows)} holidays for {target_year}. "
+                                   f"Excluded from random (did duty last year): {len(last_year_workers)} people.")
+
+                        # build input table
+                        name_options = [""] + all_names
+                        assignments = {}
+
+                        st.markdown("**Enter names for each holiday (leave blank for random assignment):**")
+                        for h in hol_rows:
+                            col_hol, col_n1, col_n2 = st.columns([3, 2, 2])
+                            with col_hol:
+                                st.markdown(f"**{h['name']}**")
+                                st.caption(f"{h['date_str']} ({h['day']})")
+                            with col_n1:
+                                n1 = st.selectbox("Name 1", name_options,
+                                                  index=name_options.index(h['n1']) if h['n1'] in name_options else 0,
+                                                  key=f"hol_n1_{h['sheet_row']}", label_visibility="collapsed")
+                            with col_n2:
+                                n2 = st.selectbox("Name 2", name_options,
+                                                  index=name_options.index(h['n2']) if h['n2'] in name_options else 0,
+                                                  key=f"hol_n2_{h['sheet_row']}", label_visibility="collapsed")
+                            assignments[h['sheet_row']] = {"h": h, "n1": n1, "n2": n2}
+                            st.markdown("<hr style='margin:4px 0;border:none;border-top:1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+
+                        if st.button("🎲 Generate & Save", use_container_width=True, key="gen_hol_duty"):
+                            import random as _random
+
+                            # eligible pool: exclude last year workers
+                            eligible = [n for n in all_names if n.upper() not in last_year_workers]
+
+                            updates = []
+                            for sr, asgn in assignments.items():
+                                h = asgn["h"]
+                                n1 = asgn["n1"].strip()
+                                n2 = asgn["n2"].strip()
+
+                                # determine if any female is manually assigned
+                                n1_is_female = n1 and "(F)" in n1.upper()
+                                n2_is_female = n2 and "(F)" in n2.upper()
+
+                                # fill blanks randomly
+                                used = {n1.upper(), n2.upper()} - {""}
+                                pool = [n for n in eligible if n.upper() not in used]
+
+                                if not n1 and not n2:
+                                    # both blank — check if we should assign females
+                                    # randomly decide: if females available and not excluded, can assign both
+                                    female_pool = [n for n in female_names if n.upper() not in last_year_workers]
+                                    if female_pool and len(female_pool) >= 2 and _random.random() < 0.3:
+                                        chosen = _random.sample(female_pool, 2)
+                                        n1, n2 = chosen[0], chosen[1]
+                                    else:
+                                        non_female_pool = [n for n in pool if "(F)" not in n.upper()]
+                                        if len(non_female_pool) >= 2:
+                                            chosen = _random.sample(non_female_pool, 2)
+                                            n1, n2 = chosen[0], chosen[1]
+                                        elif len(pool) >= 2:
+                                            chosen = _random.sample(pool, 2)
+                                            n1, n2 = chosen[0], chosen[1]
+
+                                elif not n1:
+                                    # n2 is set — if n2 is female, n1 must be female
+                                    if n2_is_female:
+                                        female_pool = [n for n in female_names
+                                                       if n.upper() not in last_year_workers
+                                                       and n.upper() != n2.upper()]
+                                        n1 = _random.choice(female_pool) if female_pool else ""
+                                    else:
+                                        non_fem = [n for n in pool if "(F)" not in n.upper()]
+                                        n1 = _random.choice(non_fem) if non_fem else (_random.choice(pool) if pool else "")
+
+                                elif not n2:
+                                    # n1 is set — if n1 is female, n2 must be female
+                                    if n1_is_female:
+                                        female_pool = [n for n in female_names
+                                                       if n.upper() not in last_year_workers
+                                                       and n.upper() != n1.upper()]
+                                        n2 = _random.choice(female_pool) if female_pool else ""
+                                    else:
+                                        used2 = {n1.upper()}
+                                        non_fem = [n for n in eligible
+                                                   if n.upper() not in used2 and "(F)" not in n.upper()]
+                                        n2 = _random.choice(non_fem) if non_fem else ""
+
+                                updates.append({"sheet_row": sr, "n1": n1, "n2": n2})
+
+                            # write to sheet
+                            try:
+                                sh_hol2 = convert_if_excel(client, spreadsheet_name)
+                                hol_ws2 = sh_hol2.worksheet("Holiday")
+                                batch = []
+                                for u in updates:
+                                    batch.append({"range": f"D{u['sheet_row']}:E{u['sheet_row']}",
+                                                  "values": [[u['n1'], u['n2']]]})
+                                hol_ws2.batch_update(batch, value_input_option='USER_ENTERED')
+                                fetch_sheet_data.clear()
+                                st.success("✅ Holiday duties saved!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Failed to save: {e}")
+
+            except Exception as e:
+                st.error(f"❌ Could not load holiday duty section: {e}")
 
     if admin_page == "✏️ Editing":
 
