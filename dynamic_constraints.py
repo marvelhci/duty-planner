@@ -169,7 +169,7 @@ def apply_dynamic_constraints(
                     for r in range(row_start, row_end+1):
                         for week, cols in iso_map.items():
                             wvars = [x[(r,c)] for c in cols
-                                     if (r,c) not in fixed_duties or c not in holiday_cols]
+                                if (r,c) not in fixed_duties]
                             if wvars:
                                 if operator == "<=":
                                     model.Add(sum(wvars) <= number)
@@ -180,7 +180,8 @@ def apply_dynamic_constraints(
                     for r in range(row_start, row_end+1):
                         status_val = str(fix_assignment_df.iat[r, OFFSET_COL+1]).strip().upper()
                         is_excl = any(k in status_val for k in exclusion_keywords)
-                        total = [x[(r,c)] for c in range(date_start_col, date_end_col+1)]
+                        total = [x[(r,c)] for c in range(date_start_col, date_end_col+1)
+                            if (r,c) not in fixed_duties]
                         if operator == "<=" and not is_soft:
                             if is_excl:
                                 num_hol = sum(1 for c in holiday_cols if (r,c) in fixed_duties)
@@ -250,8 +251,10 @@ def apply_dynamic_constraints(
                         last_d = datetime(year_old, month_old, max(lm_duties))
                         for c in range(date_start_col, date_end_col+1):
                             if (r,c) in fixed_duties: continue
+                            if (r,c) in fixed_duties:
+                                continue
                             if (col_to_date[c] - last_d).days < days:
-                                model.Add(x[(r,c)] == 0)
+                                model.Add(x[(r,c)] == 0)== 0)
                             else:
                                 break
                     # internal
@@ -342,6 +345,8 @@ def apply_dynamic_constraints(
                 for r1,r2 in partner_pairs:
                     for c in range(date_start_col, date_end_col+1):
                         if (r1,c) in x and (r2,c) in x:
+                            if (r1,c) in fixed_duties or (r2,c) in fixed_duties:
+                                continue
                             is_split = model.NewBoolVar(f"split_{cid}_{r1}_{r2}_{c}")
                             model.Add(x[(r1,c)]-x[(r2,c)] <= is_split)
                             model.Add(x[(r2,c)]-x[(r1,c)] <= is_split)
@@ -350,7 +355,8 @@ def apply_dynamic_constraints(
             elif trait == "same_branch" and logic == "cannot":
                 for c in range(date_start_col, date_end_col+1):
                     for branch, rows_b in branch_to_row.items():
-                        bvars = [x[(r,c)] for r in rows_b if (r,c) in x]
+                        bvars = [x[(r,c)] for r in rows_b
+                            if (r,c) in x and (r,c) not in fixed_duties]
                         if len(bvars) >= 2:
                             viol = model.NewBoolVar(f"br_viol_{cid}_{branch}_{c}")
                             model.Add(sum(bvars) < 2).OnlyEnforceIf(viol.Not())
@@ -360,7 +366,7 @@ def apply_dynamic_constraints(
             elif trait == "drivers" and logic == "cannot":
                 for c in range(date_start_col, date_end_col+1):
                     drivers = [x[(r,c)] for r in range(row_start, row_end+1)
-                               if (r,c) in x and r in is_driver]
+                        if (r,c) in x and r in is_driver and (r,c) not in fixed_duties]
                     if drivers:
                         dc = model.NewIntVar(0, len(drivers), f"dcount_{cid}_{c}")
                         model.Add(dc == sum(drivers))

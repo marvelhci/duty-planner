@@ -500,21 +500,23 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             is_holiday = c in holiday_cols
             x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
 
+            if cell == "D":
+                x[(r, c)] = model.NewConstant(1)
+                fixed_duties.add((r, c))
+                continue
+
+            # normal variable
+            x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
+
             if is_excluded_for_month:
-                if is_holiday and cell == "D":
-                    model.Add(x[(r, c)] == 1)
-                    fixed_duties.add((r, c))
-                else:
-                    model.Add(x[(r, c)] == 0)
-            else:
-                if cell == "D":
-                    model.Add(x[(r, c)] == 1)
-                    fixed_duties.add((r, c))
-                elif cell == "S":
-                    model.Add(x[(r, c)] == 0)
-                    fixed_standbys.add((r, c))
-                elif cell == "X":
-                    model.Add(x[(r, c)] == 0)
+                model.Add(x[(r, c)] == 0)
+
+            elif cell == "S":
+                model.Add(x[(r, c)] == 0)
+                fixed_standbys.add((r, c))
+
+            elif cell == "X":
+                model.Add(x[(r, c)] == 0)
 
     # --------------------------------------------------
     # DYNAMIC CONSTRAINTS (interpreted from CONFIG sheet)
@@ -735,9 +737,10 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             if r in final_scores:
                 planned_df.iat[r, OFFSET_COL] = solver.Value(final_scores[r]) / SCALE
 
-            if solver.Value(var) == 1:
-                if planned_df.iat[r, c] != "D":
-                    planned_df.iat[r, c] = "D"
+            if (r, c) in fixed_duties:
+                planned_df.iat[r, c] = "D"
+            elif solver.Value(var) == 1:
+                planned_df.iat[r, c] = "D"
 
     # normalisation of points
     active_rows = [
