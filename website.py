@@ -353,35 +353,19 @@ if role == 'Admin':
         st.sidebar.markdown("---")
         st.sidebar.subheader("💯 Point Allocations")
 
-        col_slider, col_input = st.sidebar.columns([3, 1])
-
         if "weekday_slider" not in st.session_state:
             st.session_state["weekday_slider"] = 1.0
-            st.session_state["weekday_input"] = 1.0
         if "friday_slider" not in st.session_state:
             st.session_state["friday_slider"] = 1.0
-            st.session_state["friday_input"] = 1.0
         if "weekend_slider" not in st.session_state:
             st.session_state["weekend_slider"] = 2.0
-            st.session_state["weekend_input"] = 2.0
         if "holiday_slider" not in st.session_state:
             st.session_state["holiday_slider"] = 2.0
-            st.session_state["holiday_input"] = 2.0
 
-        with col_slider:
-            weekday_val = st.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", step=0.5)
-            friday_val  = st.slider("Friday Points",  0.0, 10.0, key="friday_slider",  step=0.5)
-            weekend_val = st.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", step=0.5)
-            holiday_val = st.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", step=0.5)
-
-        with col_input:
-            st.number_input("wv", 0.0, 10.0, key="weekday_input", label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            st.number_input("fv", 0.0, 10.0, key="friday_input",  label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            st.number_input("wev", 0.0, 10.0, key="weekend_input", label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            st.number_input("hv", 0.0, 10.0, key="holiday_input", label_visibility="collapsed")
+        weekday_val = st.sidebar.slider("Weekday Points", 0.0, 10.0, key="weekday_slider", step=0.5)
+        friday_val  = st.sidebar.slider("Friday Points",  0.0, 10.0, key="friday_slider",  step=0.5)
+        weekend_val = st.sidebar.slider("Weekend Points", 0.0, 10.0, key="weekend_slider", step=0.5)
+        holiday_val = st.sidebar.slider("Holiday Points", 0.0, 10.0, key="holiday_slider", step=0.5)
 
         point_allocations = {
             "weekday_points": weekday_val,
@@ -392,18 +376,12 @@ if role == 'Admin':
 
         st.sidebar.markdown("---")
         st.sidebar.subheader("⚙️ Optimiser Settings")
-        col_slider, col_input = st.sidebar.columns([3, 1])
         if "scalefactor_slider" not in st.session_state:
             st.session_state["scalefactor_slider"] = 4
         if "sbf_slider" not in st.session_state:
             st.session_state["sbf_slider"] = 2
-        with col_slider:
-            scalefactor_val = st.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", step=1)
-            sbf_val         = st.slider("SB Bonus",            0, 5, key="sbf_slider",         step=1)
-        with col_input:
-            st.number_input("sfv", 0, 5, key="scalefactor_input", label_visibility="collapsed")
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            st.number_input("sbv", 0, 5, key="sbf_input",         label_visibility="collapsed")
+        scalefactor_val = st.sidebar.slider("Normalisation Scale", 0, 5, key="scalefactor_slider", step=1)
+        sbf_val         = st.sidebar.slider("SBF Bonus",           0, 5, key="sbf_slider",         step=1)
 
         model_constraints = {
             "scalefactor": scalefactor_val,
