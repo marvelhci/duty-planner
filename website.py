@@ -1846,7 +1846,7 @@ if role == 'Dev':
             _dev_soft = {k: v for k, v in _dev_sheet_cfg.items() if not k.startswith("_") and v.get("type","").lower() == "soft"}
             _dev_drafts = {}
 
-            with st.expander("🔒 Hard Constraints", expanded=False):
+            with st.expander("🪨 Hard Constraints", expanded=False):
                 for cid, cv in _dev_hard.items():
                     cur = cv.get("draft_active", cv.get("active", True))
                     nv = st.toggle(cv.get('label', cid), value=cur, key=f"dev_tog_{cid}")
@@ -1859,7 +1859,7 @@ if role == 'Dev':
                         st.caption(cv.get("description",""))
                     st.markdown("<hr style='margin: 2px 0 8px 0; border: none; border-top: 1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
 
-            with st.expander("🔓 Soft Constraints", expanded=False):
+            with st.expander("🪶 Soft Constraints", expanded=False):
                 for cid, cv in _dev_soft.items():
                     cur = cv.get("draft_active", cv.get("active", True))
                     nv = st.toggle(cv.get('label', cid), value=cur, key=f"dev_tog_{cid}")
