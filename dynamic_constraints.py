@@ -51,7 +51,7 @@ def apply_dynamic_constraints(
     fix_assignment_df, planned_df,
     row_start, row_end, date_start_col, date_end_col,
     col_to_date, iso_map, holiday_cols, holiday_days,
-    fixed_duties, fixed_standbys,
+    fixed_duties,
     year, month, year_old, month_old,
     exclusion_keywords, is_female_pair, female_indices,
     name_to_row, branch_to_row, is_driver, partner_pairs,
@@ -251,8 +251,10 @@ def apply_dynamic_constraints(
                             if (col_to_date[c2]-d1).days >= days: break
                             model.Add(x[(r,c1)] + x[(r,c2)] <= 1)
 
-            elif from_type in ("D","S") and to_type in ("D","S") and s:
-                # D-S, S-D, or S-S gaps
+            elif from_type == "D" and to_type == "S" and s:
+                # D→S gap: if person has a D on day c1, they cannot be S within `days` after.
+                # Also enforces S→D symmetry: if person has a D on day c2, they cannot be S
+                # on day c1 within `days` before it (since D is already fixed, block the S).
                 for r in range(row_start, row_end+1):
                     for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
@@ -262,17 +264,25 @@ def apply_dynamic_constraints(
                                 c1_is_d = planned_df is not None and planned_df.iat[r,c1]=="D"
                                 c2_is_d = planned_df is not None and planned_df.iat[r,c2]=="D"
                             except: continue
-                            c1_is_s = (r,c1) in s
-                            c2_is_s = (r,c2) in s
 
-                            if from_type=="D" and to_type=="S":
-                                if c1_is_d and c2_is_s:
-                                    model.Add(s[(r,c2)] == 0)
-                                if c1_is_s and c2_is_d:
-                                    model.Add(s[(r,c1)] == 0)
-                            elif from_type=="S" and to_type=="S":
-                                if c1_is_s and c2_is_s:
-                                    model.Add(s[(r,c1)] + s[(r,c2)] <= 1)
+                            # D on c1 → block S on c2
+                            if c1_is_d and (r,c2) in s:
+                                model.Add(s[(r,c2)] == 0)
+
+                            # D on c2 → block S on c1 (S→D direction, same gap window)
+                            if c2_is_d and (r,c1) in s:
+                                model.Add(s[(r,c1)] == 0)
+
+            elif from_type == "S" and to_type == "S" and s:
+                # S→S gap: person cannot have two S assignments within `days` of each other.
+                for r in range(row_start, row_end+1):
+                    for c1 in range(date_start_col, date_end_col+1):
+                        if (r,c1) not in s: continue
+                        d1 = col_to_date[c1]
+                        for c2 in range(c1+1, date_end_col+1):
+                            if (col_to_date[c2]-d1).days >= days: break
+                            if (r,c2) not in s: continue
+                            model.Add(s[(r,c1)] + s[(r,c2)] <= 1)
 
         # ════════════════════════════════
         # CLASS: GROUPING

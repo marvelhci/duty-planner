@@ -572,9 +572,66 @@ if role == 'Admin':
                         )
 
                         st.success(f"✅ Done!")
+                        st.session_state['last_saved_mmyy'] = mmyy
                         st.session_state.pop('planned_df', None)
                 else:
                     st.warning("⚠️ Run the optimiser first!")
+
+        # undo button — only shown after a save has been performed this session
+        if st.session_state.get('last_saved_mmyy'):
+            saved_mmyy = st.session_state['last_saved_mmyy']
+
+            # calculate next month label to know which template sheet to delete
+            _s_m = int(saved_mmyy[:2])
+            _s_y = int(saved_mmyy[2:])
+            _next_m = _s_m + 1 if _s_m < 12 else 1
+            _next_y = _s_y if _s_m < 12 else _s_y + 1
+            _next_mmyy = f"{_next_m:02d}{_next_y:02d}"[2:] # MMYY format
+            _next_mmyy = f"{_next_m:02d}{str(_next_y)[-2:]}"
+            _d_sheet   = f"{saved_mmyy}D"
+            _next_c    = f"{_next_mmyy}C"
+
+            st.markdown("---")
+            col_u1, col_u2 = st.columns([2, 3])
+            with col_u1:
+                st.write("Undo last save:")
+            with col_u2:
+                if st.button(f"↩️ Undo Save ({saved_mmyy})", type="secondary"):
+                    st.session_state['confirm_undo'] = True
+
+            if st.session_state.get('confirm_undo'):
+                st.warning(
+                    f"⚠️ This will delete **{_d_sheet}** and **{_next_c}** from the sheet. "
+                    f"This cannot be undone. Are you sure?"
+                )
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    if st.button("✅ Yes, Undo", use_container_width=True):
+                        try:
+                            sh_undo = client.open(final_name)
+                            deleted = []
+                            for sheet_name in [_d_sheet, _next_c]:
+                                try:
+                                    ws_del = sh_undo.worksheet(sheet_name)
+                                    sh_undo.del_worksheet(ws_del)
+                                    deleted.append(sheet_name)
+                                except gspread.exceptions.WorksheetNotFound:
+                                    pass  # already gone, not an error
+                            fetch_sheet_data.clear()
+                            st.session_state.pop('last_saved_mmyy', None)
+                            st.session_state.pop('confirm_undo', None)
+                            if deleted:
+                                st.success(f"✅ Deleted: {', '.join(deleted)}")
+                            else:
+                                st.info("ℹ️ No sheets found to delete — they may have already been removed.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Undo failed: {e}")
+                            st.code(traceback.format_exc())
+                with col_no:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.session_state.pop('confirm_undo', None)
+                        st.rerun()
 
         # --------------------------------------------------
         # ADD PERSONNEL
@@ -1070,9 +1127,9 @@ if role == 'Admin':
             elif sheet_used == "C":
                 st.info("ℹ️ Showing draft constraints — roster not yet finalised")
 
-            # segmented control: Calendar vs Summary
+            # segmented control: Calendar / C Sheet / Summary
             cal_view_mode = st.segmented_control(
-                "View", options=["Calendar", "Summary"], default="Calendar", key="edit_cal_mode"
+                "View", options=["Calendar", "C Sheet", "Summary"], default="Calendar", key="edit_cal_mode"
             )
 
             if cal_view_mode == 'Summary':
@@ -1090,6 +1147,43 @@ if role == 'Admin':
                         st.warning(f'⚠️ No data found in {year_str_sum} sheet.')
                 except Exception as e:
                     st.error(f'❌ Could not load year sheet: {e}')
+
+            if cal_view_mode == 'C Sheet':
+                c_sheet_name = f"{mmyy}C"
+                c_cache_key = f"c_sheet_preview_{mmyy}"
+                try:
+                    if c_cache_key not in st.session_state:
+                        raw_c = fetch_sheet_data(client, spreadsheet_name, c_sheet_name)
+                        st.session_state[c_cache_key] = raw_c
+                    raw_c = st.session_state[c_cache_key]
+
+                    if not raw_c or len(raw_c) < 2:
+                        st.warning(f"⚠️ No data found in {c_sheet_name}.")
+                    else:
+                        # Row 3 (index 2) is the header; data starts row 4 (index 3) onwards.
+                        # Columns A–AR = indices 0–43.
+                        header_row = raw_c[2][:44]
+                        data_rows  = raw_c[2:]
+
+                        # Find last row with a name in column B (index 1)
+                        last_name_idx = 0
+                        for i, row in enumerate(data_rows):
+                            name_val = row[1].strip() if len(row) > 1 else ""
+                            if name_val:
+                                last_name_idx = i
+                        data_rows = data_rows[:last_name_idx + 1]
+
+                        # Trim each row to 44 columns (A–AR), padding short rows
+                        trimmed = []
+                        for row in data_rows:
+                            padded = (row + [""] * 44)[:44]
+                            trimmed.append(padded)
+
+                        c_df = pd.DataFrame(trimmed, columns=header_row)
+                        st.dataframe(c_df, use_container_width=True, hide_index=True)
+                        st.caption(f"Showing {c_sheet_name} — columns A to AR, {len(trimmed)} person(s).")
+                except Exception as e:
+                    st.error(f"❌ Could not load {c_sheet_name}: {e}")
 
             if cal_view_mode == 'Calendar':
 

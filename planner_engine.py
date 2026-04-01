@@ -435,7 +435,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     model = cp_model.CpModel()
     x = {}
     fixed_duties = set()
-    fixed_standbys = set()
 
     exclusion_keywords = ["SBF", "SAIL", "NDP", "EXCUSED", "MEDICAL", "ON COURSE", "PARTNER"]
 
@@ -478,7 +477,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         date_start_col=date_start_col, date_end_col=date_end_col,
         col_to_date=col_to_date, iso_map=iso_map,
         holiday_cols=holiday_cols, holiday_days=holiday_days,
-        fixed_duties=fixed_duties, fixed_standbys=fixed_standbys,
+        fixed_duties=fixed_duties,
         year=year, month=month, year_old=year_old, month_old=month_old,
         exclusion_keywords=exclusion_keywords,
         is_female_pair=is_female_pair, female_indices=female_indices,
@@ -817,7 +816,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         date_start_col=date_start_col, date_end_col=date_end_col,
         col_to_date=col_to_date, iso_map=iso_map,
         holiday_cols=holiday_cols, holiday_days=holiday_days,
-        fixed_duties=fixed_duties, fixed_standbys=fixed_standbys,
+        fixed_duties=fixed_duties,
         year=year, month=month, year_old=year_old, month_old=month_old,
         exclusion_keywords=exclusion_keywords,
         is_female_pair=is_female_pair, female_indices=female_indices,
