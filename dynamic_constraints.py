@@ -88,10 +88,6 @@ def apply_dynamic_constraints(
 
     # model_constraints fallbacks
     hard4  = model_constraints.get('hard4', 4)
-    hard5  = model_constraints.get('hard5', 3)
-    hard1  = model_constraints.get('hard1', 2)
-    hard1s = model_constraints.get('hard1s', 2)
-    hard2s = model_constraints.get('hard2s', 2)
 
     if slider_overrides is None:
         slider_overrides = {}

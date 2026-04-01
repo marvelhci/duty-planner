@@ -226,11 +226,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     sat_sun_points = point_allocations.get('weekend_points', 2.0)
     holiday_points = point_allocations.get('holiday_points', 2.0)
 
-    hard1 = model_constraints.get('hard1', 2)
-    hard4 = model_constraints.get('hard4', 4)
-    hard5 = model_constraints.get('hard5', 3)
-    hard1s = model_constraints.get('hard1s', 2)
-    hard2s = model_constraints.get('hard2s', 2)
     scalefactor = model_constraints.get('scalefactor', 4)
     sbf_val = model_constraints.get('sbf_val', 2)
 
