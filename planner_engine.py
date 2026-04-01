@@ -126,8 +126,9 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
     num_days_next = calendar.monthrange(next_dt.year, next_dt.month)[1]
 
     # format header date
-    next_ws.update_acell('F3', next_dt.strftime("%Y-%m-%d"))
-    next_ws.format("F3", {
+    first_day_str = next_dt.strftime("%Y-%m-%d")
+    next_ws.update_acell('E3', first_day_str)
+    next_ws.format("E3", {
         "numberFormat": {"type": "DATE", "pattern": "dd"},
         "horizontalAlignment": "LEFT",
         "textFormat": {"bold": True}
@@ -497,17 +498,18 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
 
         for c in range(date_start_col, date_end_col + 1):
             cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
-            is_holiday = c in holiday_cols
-            x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
-
+            
+            # 1. PRIORITY: If there is a manual "D", always assign the duty 
+            # regardless of SBF or other exclusion status
             if cell == "D":
                 x[(r, c)] = model.NewConstant(1)
                 fixed_duties.add((r, c))
                 continue
 
-            # normal variable
+            # 2. Create the variable for non-manual days
             x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
 
+            # 3. Apply exclusions (like SBF) only if there wasn't a manual "D"
             if is_excluded_for_month:
                 model.Add(x[(r, c)] == 0)
 
@@ -819,11 +821,12 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         is_excluded = any(k in status_val for k in exclusion_keywords)
 
         for c in range(date_start_col, date_end_col + 1):
-            # skip if the person is generally excluded for the month
+            # Even if they have a manual 'D', they are still 'SBF' in status, 
+            # so we must skip them for Standby (S) assignments.
             if is_excluded or is_female_pair.get(r, False):
                 continue
 
-            # skip if the person is already assigned a D from Pass 1
+            # skip if already assigned a D (including the manual ones)
             if planned_df.iat[r, c] == "D":
                 continue
 
