@@ -461,7 +461,9 @@ if role == 'Admin':
 
                         # C sheet: header is row 3 (index 2), offset col is AQ (index 42)
                         constraints_raw = get_df(f"{mmyy}C", header_row=2)
-                        constraints_raw.iloc[:, 42] = pd.to_numeric(constraints_raw.iloc[:, 42], errors='coerce').fillna(0)
+                        col_idx = 42
+                        converted_series = pd.to_numeric(constraints_raw.iloc[:, col_idx], errors='coerce').fillna(0)
+                        constraints_raw.iloc[:, col_idx] = converted_series.astype(float)
                         holidays_raw = get_df("Holiday", header_row=0)
                         partners_raw = get_df("Partners", header_row=0, use_cols=3)
                         namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
