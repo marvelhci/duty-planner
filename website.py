@@ -10,6 +10,7 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+from ortools.sat.python import cp_model
 import requests as http_requests
 
 # Passwords now stored in CONFIG sheet
@@ -486,7 +487,7 @@ if role == 'Admin':
                             "carry_scale": carry_scale
                         }
 
-                        planned_df, n_scale, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides)
+                        planned_df, n_scale, status, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides)
 
                         if planned_df is not None:
                             st.session_state['planned_df'] = planned_df
@@ -527,10 +528,10 @@ if role == 'Admin':
                                     except Exception as e:
                                         st.warning(f"⚠️ Could not create {next_year_str} sheet: {e}")
 
-                            st.success("✅ Optimisation Successful!")
-                        else:
-                            st.warning("⚠️ No Solution Found")
-
+                            if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                                st.success("✅ Optimisation Successful!")
+                            else:
+                                st.warning("⚠️ No Solution Found")
                 except Exception:
                     st.error("❌ Critical Error Detected")
                     st.code(traceback.format_exc())
@@ -593,6 +594,10 @@ if role == 'Admin':
                 if not new_name or not new_branch:
                     st.error("❌ Please enter both name and branch.")
                 else:
+                    # set a confirmation flag in session_state
+                    st.session_state["confirm_add_person"] = True
+            if st.session_state.get("confirm_add_person"):
+                if st.button(f"⚠️ Confirm Add {new_name} ({new_branch})"):
                     try:
                         sh = convert_if_excel(client, spreadsheet_name)
                         year_str = str(2000 + int(mmyy[2:]))
@@ -702,6 +707,10 @@ if role == 'Admin':
                 if not remove_name:
                     st.error("❌ Please select a person.")
                 else:
+                    # set a confirmation flag in session_state
+                    st.session_state["confirm_remove_person"] = remove_name
+            if st.session_state.get("confirm_remove_person"):
+                if st.button(f"⚠️ Confirm Remove {st.session_state['confirm_remove_person']}"):
                     try:
                         sh = convert_if_excel(client, spreadsheet_name)
                         c_sheet = f"{mmyy}C"
