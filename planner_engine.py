@@ -446,8 +446,8 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
 
         for c in range(date_start_col, date_end_col + 1):
             cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
-            
-            # 1. PRIORITY: If there is a manual "D", always assign the duty 
+
+            # 1. PRIORITY: If there is a manual "D", always assign the duty
             # regardless of SBF or other exclusion status
             if cell == "D":
                 x[(r, c)] = model.NewConstant(1)
@@ -457,15 +457,9 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             # 2. Create the variable for non-manual days
             x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
 
-            # 3. Apply exclusions (like SBF) only if there wasn't a manual "D"
-            if is_excluded_for_month:
-                model.Add(x[(r, c)] == 0)
-
-            elif cell == "S":
-                model.Add(x[(r, c)] == 0)
-                fixed_standbys.add((r, c))
-
-            elif cell == "X":
+            # 3. Excluded (SBF/excused/partner), S, or X cells all block duty assignment.
+            #    S is handled fully in the standby pass below — it just means unavailable here.
+            if is_excluded_for_month or cell in ("S", "X"):
                 model.Add(x[(r, c)] == 0)
 
     # --------------------------------------------------
@@ -691,6 +685,15 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             elif solver.Value(var) == 1:
                 planned_df.iat[r, c] = "D"
 
+    # Fill excluded rows (SBF/excused/etc) with "0" on every non-D cell so the
+    # output sheet visually shows they are fully blocked for the month.
+    for r in range(row_start, row_end + 1):
+        status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
+        if any(keyword in status_val for keyword in exclusion_keywords):
+            for c in range(date_start_col, date_end_col + 1):
+                if planned_df.iat[r, c] != "D":
+                    planned_df.iat[r, c] = "0"
+
     # normalisation of points
     active_rows = [
         r for r in range(row_start, row_end + 1)
@@ -760,44 +763,47 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
 
     model_s = cp_model.CpModel()
     s = {}
+    fixed_standbys = set()
 
-    # rows with any manual D in the constraint sheet are fully excluded from standby
-    rows_with_manual_d = set()
-    for r in range(row_start, row_end + 1):
-        for c in range(date_start_col, date_end_col + 1):
-            cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
-            if cell == "D":
-                rows_with_manual_d.add(r)
-                break
-
-    # availability creation
+    # Build s variables.
+    # Rules:
+    #   - Excluded persons (SBF/excused/partner/etc) are fully skipped — no standby either.
+    #   - If the person is already on duty (D) that day in planned_df, skip that day.
+    #   - Hard X in constraint sheet → skip (not available).
+    #   - Manual S in constraint sheet → fixed standby (NewConstant(1)).
+    #   - Everyone else gets a free NewBoolVar.
     for r in range(row_start, row_end + 1):
         status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
         is_excluded_for_month = any(keyword in status_val for keyword in exclusion_keywords)
 
+        # Fully excluded people do no standby at all
+        if is_excluded_for_month:
+            continue
+
         for c in range(date_start_col, date_end_col + 1):
-            # 1. Read the cell value
+            # Already assigned as duty this day — cannot also be standby
+            if planned_df.iat[r, c] == "D":
+                continue
+
             cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
-            
-            # 2. YOUR LOGIC: If they are SBF/Excused, treat any non-manual 'D' as an 'X'
-            if is_excluded_for_month and cell != "D":
-                cell = "X"
 
-            # 3. Create the variable
-            x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
-
-            # 4. Standard logic: If cell is X (now includes SBF rows), force to 0
+            # Hard unavailability — skip entirely (no variable needed)
             if cell == "X":
-                model.Add(x[(r, c)] == 0)
-            
-            # 5. Handle manual D (Manual D still works even if they are SBF)
-            elif cell == "D":
-                model.Add(x[(r, c)] == 1)
-                fixed_duties.add((r, c))
+                continue
+
+            # Manual S → fixed standby
+            if cell == "S":
+                s[(r, c)] = model_s.NewConstant(1)
+                fixed_standbys.add((r, c))
+                continue
+
+            # Free standby variable
+            s[(r, c)] = model_s.NewBoolVar(f"s_{r}_{c}")
 
     # --------------------------------------------------
     # DYNAMIC STANDBY CONSTRAINTS
     # --------------------------------------------------
+    # s is now fully populated — safe to apply constraints
     _sb_soft, _ = apply_dynamic_constraints(
         model=model_s, x={}, s=s,
         config=config,
@@ -822,19 +828,21 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         slider_overrides=slider_overrides or {}
     )
 
-    # count the number of S and ensure it doesnt not exceed 5
+    # Count S per person and cap at 5; minimise the maximum across all persons
     s_counts = {}
     for r in range(row_start, row_end + 1):
         personal_s_vars = [s[(r, c)] for c in range(date_start_col, date_end_col + 1) if (r, c) in s]
+        if not personal_s_vars:
+            continue
         count_var = model_s.NewIntVar(0, 5, f"s_count_{r}")
         model_s.Add(count_var == sum(personal_s_vars))
         s_counts[r] = count_var
 
-    # minimize the max standby assignments per person
-    max_s = model_s.NewIntVar(0, 5, "max_s")
-    for count_var in s_counts.values():
-        model_s.Add(max_s >= count_var)
-    model_s.Minimize(max_s)
+    if s_counts:
+        max_s = model_s.NewIntVar(0, 5, "max_s")
+        for count_var in s_counts.values():
+            model_s.Add(max_s >= count_var)
+        model_s.Minimize(max_s + sum(_sb_soft))
 
     solver_s = cp_model.CpSolver()
     solver_s.parameters.max_time_in_seconds = 10
@@ -843,7 +851,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     if status_s in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print("Standby pass successful.")
         for (r, c), var in s.items():
-            if solver_s.Value(var) == 1:
+            if (r, c) in fixed_standbys or solver_s.Value(var) == 1:
                 planned_df.iat[r, c] = "S"
     else:
         print("Could not find a feasible solution for Standby.")
