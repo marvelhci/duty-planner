@@ -219,11 +219,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     year_old = data_bundle["year_old"]
     month_old = data_bundle["month_old"]
     
-    # Sliders from Web UI
-    S1 = config.get('S1', 100)  # partners
-    S2 = config.get('S2', 60)  # branch
-    S3 = config.get('S3', 10)  # drivers
-    S4 = config.get('S4', 400)  # minimum 1x D
     SCALE = 1000
 
     weekday_points = point_allocations.get('weekday_points', 1.0)
@@ -347,28 +342,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         else:
             is_female_pair[r] = False
 
-    # last month weekend and duties
-    weekend_workers_last_month = set()
-    friday_workers_last_month = set()
-    duties_last_month = defaultdict(list)
-    if isinstance(last_month_df, pd.DataFrame):
-        _, last_num_days = calendar.monthrange(year_old, month_old)
-
-        for c in range(date_start_col, date_start_col + last_num_days):
-            day_num = c - date_start_col + 1
-            last_date = datetime(year_old, month_old, day_num)
-
-            for r in range(row_start, row_end + 1):
-                cell_val = str(last_month_df.iat[r, c]).strip().upper()
-                if cell_val == "D":
-                    name = str(last_month_df.iat[r, 1]).strip().upper()
-                    duties_last_month[name].append(day_num)
-
-                    if last_date.weekday() in [5, 6]:
-                        weekend_workers_last_month.add(name)
-                    if last_date.weekday() == 4:
-                        friday_workers_last_month.add(name)
-
     # --------------------------------------------------
     # SOFT CONSTRAINT SETUP
     # --------------------------------------------------
@@ -397,22 +370,7 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             partner_pairs.append((name_to_row[p1_name], name_to_row[p2_name]))
             seen_pairs.add(pair_key)
 
-    # soft constraint 2 set-up
-
-    b_name_to_row = {}
-
-    for r in range(row_start, row_end + 1):
-        raw_name = constraint_df.iat[r, 1]
-
-        if pd.isna(raw_name):
-            continue
-
-        name = str(raw_name).strip().upper()
-
-        b_name_to_row[name] = r
-
     branch_to_row = defaultdict(list)
-    unmatched_names = []
 
     for i in range(len(namelist_df)):
         raw_name = namelist_df.iloc[i, 1]
@@ -424,16 +382,13 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
         name = str(raw_name).strip().upper()
         branch = str(raw_branch).strip().upper()
 
-        if name in b_name_to_row:
-            duty_row = b_name_to_row[name]
+        if name in name_to_row:
+            duty_row = name_to_row[name]
             branch_to_row[branch].append(duty_row)
-        else:
-            unmatched_names.append(name)
 
     # soft constraint 3 set-up
 
     is_driver = {}
-    is_non_driver = {}
 
     for i in range(len(namelist_df)):
         person_name = str(namelist_df.iloc[i, 1]).strip().upper()
@@ -446,8 +401,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
             row_idx = name_to_row[person_name]
             if designation == "DRIVER":
                 is_driver[row_idx] = True
-            else:
-                is_non_driver[row_idx] = True
     
     # partner set-up
 
@@ -557,7 +510,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     final_scores = {}
     duty_counts = {}
 
-    sum_new_points = 0
     sum_new_points = sum(
         int(round(p * SCALE * 2))
         for p in points_df["points"]
@@ -814,16 +766,23 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     model_s = cp_model.CpModel()
     s = {}
 
-    # availability creation
+    # rows with any manual D in the constraint sheet are fully excluded from standby
+    rows_with_manual_d = set()
+    for r in range(row_start, row_end + 1):
+        for c in range(date_start_col, date_end_col + 1):
+            cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
+            if cell == "D":
+                rows_with_manual_d.add(r)
+                break
 
+    # availability creation
     for r in range(row_start, row_end + 1):
         status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
         is_excluded = any(k in status_val for k in exclusion_keywords)
 
         for c in range(date_start_col, date_end_col + 1):
-            # Even if they have a manual 'D', they are still 'SBF' in status, 
-            # so we must skip them for Standby (S) assignments.
-            if is_excluded or is_female_pair.get(r, False):
+            # skip if excluded by status, female pair flag, or has any manual D
+            if is_excluded or is_female_pair.get(r, False) or r in rows_with_manual_d:
                 continue
 
             # skip if already assigned a D (including the manual ones)

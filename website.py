@@ -282,8 +282,7 @@ if role == 'Admin':
         st.sidebar.title("📅 Planning Settings")
 
         # ── Load CONFIG sheet ──
-        _cfg_client = get_gspread_auth()
-        sheet_cfg = fetch_config(_cfg_client, "MASTER SHEET")
+        sheet_cfg = fetch_config(client, "MASTER SHEET")
         config = sheet_cfg
 
         # ── Dynamic constraint sliders from CONFIG ──
@@ -408,8 +407,6 @@ if role == 'Admin':
         else:
             y_old = curr_y
 
-        next_file_display = f"{m_new:02d}{y_new:02d}"
-
         st.info(f"Planning **{mmyy}**!")
 
         try:
@@ -531,10 +528,8 @@ if role == 'Admin':
                                         st.warning(f"⚠️ Could not create {next_year_str} sheet: {e}")
 
                             st.success("✅ Optimisation Successful!")
-                            state = "complete"
                         else:
                             st.warning("⚠️ No Solution Found")
-                            state = "error"
 
                 except Exception:
                     st.error("❌ Critical Error Detected")
@@ -560,7 +555,7 @@ if role == 'Admin':
                     
                     # 2. write output
                     with st.spinner("✏️ Writing Output..."):
-                        out_name = planner_engine.create_backup_and_output(
+                        planner_engine.create_backup_and_output(
                             client, final_name, mmyy,
                             st.session_state['planned_df'],
                             st.session_state['n_scale'],
@@ -733,7 +728,6 @@ if role == 'Admin':
                         st.code(traceback.format_exc())
 
         # --------------------------------------------------
-        # --------------------------------------------------
         # HOLIDAY SECTION
         # --------------------------------------------------
         st.markdown("---")
@@ -899,8 +893,8 @@ if role == 'Admin':
                             hol_date_ly = None
                             for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
                                 try:
-                                    from datetime import datetime as _dt2
-                                    hol_date_ly = _dt2.strptime(hol_date_str_ly, fmt).date()
+                                    from datetime import datetime as _dt
+                                    hol_date_ly = _dt.strptime(hol_date_str_ly, fmt).date()
                                     break
                                 except:
                                     continue
@@ -1019,12 +1013,6 @@ if role == 'Admin':
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
-        m_new = curr_m + 1 
-        if m_new > 12:
-            m_new = 1
-            y_new = curr_y + 1
-        else:
-            y_new = curr_y
         m_old = curr_m - 1
         if curr_m == 1:
             m_old = 12
@@ -1937,8 +1925,6 @@ if role == 'Dev':
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Failed to add constraint: {e}")
-                        except Exception as e:
-                            st.error(f"❌ Failed to add constraint: {e}")
     except Exception as e:
         st.error(f"❌ Could not load constraints: {e}")
 
@@ -1980,7 +1966,7 @@ if role == 'User':
             results = personal_drive.files().list(q=gs_query, fields="files(id)").execute()
             files = results.get('files', [])
             if files:
-                    st.success(f"✅ Connected to storage!")
+                st.success(f"✅ Connected to storage!")
             else:
                 st.warning(f"⚠️ Connection error: storage failed!")
         except Exception as e:
@@ -2118,18 +2104,6 @@ if role == 'User':
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
-        m_new = curr_m + 1 
-        if m_new > 12:
-            m_new = 1
-            y_new = curr_y + 1
-        else:
-            y_new = curr_y
-        m_old = curr_m - 1
-        if curr_m == 1:
-            m_old = 12
-            y_old = curr_y - 1
-        else:
-            y_old = curr_y
 
         st.info(f"Viewing **{mmyy}**!")
 

@@ -80,7 +80,7 @@ def apply_dynamic_constraints(
     for r1,r2 in partner_pairs:
         partner_row_set.add((min(r1,r2), max(r1,r2)))
 
-    # last month worked by day type
+    # last month worked by day type (used by CLASS: ALLOW)
     lm_workers = _last_month_worked(
         last_month_df, year_old, month_old,
         row_start, row_end, date_start_col, set()
@@ -237,7 +237,6 @@ def apply_dynamic_constraints(
             if from_type == "D" and to_type == "D":
                 # cross-month and internal D-D gap
                 for r in range(row_start, row_end+1):
-                    name = row_to_name.get(r,"")
                     # cross-month
                     lm_duties = []
                     if last_month_df is not None and isinstance(last_month_df, pd.DataFrame):
@@ -250,11 +249,10 @@ def apply_dynamic_constraints(
                     if lm_duties:
                         last_d = datetime(year_old, month_old, max(lm_duties))
                         for c in range(date_start_col, date_end_col+1):
-                            if (r,c) in fixed_duties: continue
                             if (r,c) in fixed_duties:
                                 continue
                             if (col_to_date[c] - last_d).days < days:
-                                model.Add(x[(r,c)] == 0)== 0
+                                model.Add(x[(r,c)] == 0)
                             else:
                                 break
                     # internal

@@ -1,23 +1,5 @@
 from datetime import date
 
-def get_person_driving_status(p_ws, name, nl_ws=None):
-    if not name or name == "None": return ""
-    if nl_ws:
-        try:
-            cell = nl_ws.find(name, in_column=2)
-            return nl_ws.cell(cell.row, 4).value or "NON-DRIVER"
-        except:
-            return "NON-DRIVER"
-    try:
-        cell = p_ws.find(name, in_column=2)
-        return p_ws.cell(cell.row, 3).value
-    except:
-        try:
-            cell = p_ws.find(name, in_column=4)
-            return p_ws.cell(cell.row, 5).value
-        except:
-            return "NON-DRIVER"
-
 def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
     try:
         sh = client.open(spreadsheet_name)
@@ -158,40 +140,40 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
 
     except Exception as e:
         return False, [f"❌ Error: {str(e)}"]
-    
+
 def parse_string_to_days(day_string, month_year_str):
-        if not day_string: return []
-        days = []
-        mm = int(month_year_str[:2])
-        yy = 2000 + int(month_year_str[2:])
-        
-        parts = [p.strip() for p in str(day_string).split(",")]
-        for p in parts:
-            if p.isdigit():
-                days.append(date(yy, mm, int(p)))
-        return days
+    if not day_string: return []
+    days = []
+    mm = int(month_year_str[:2])
+    yy = 2000 + int(month_year_str[2:])
+
+    parts = [p.strip() for p in str(day_string).split(",")]
+    for p in parts:
+        if p.isdigit():
+            days.append(date(yy, mm, int(p)))
+    return days
 
 def format_date_list(history_collection):
-        day_nums = set()
-        for item in history_collection:
-            if hasattr(item, 'day'):
-                day_nums.add(item.day)
-            elif isinstance(item, int):
-                day_nums.add(item)
-        
-        return ", ".join(map(str, sorted(list(day_nums))))
+    day_nums = set()
+    for item in history_collection:
+        if hasattr(item, 'day'):
+            day_nums.add(item.day)
+        elif isinstance(item, int):
+            day_nums.add(item)
+
+    return ", ".join(map(str, sorted(list(day_nums))))
 
 def calendar_view(client, spreadsheet_name, mmyy):
     try:
         sh = client.open(spreadsheet_name)
-        
+
         # 1. Get all available sheet titles to check for existence
         all_sheet_titles = [s.title for s in sh.worksheets()]
-        
+
         # 2. Define our targets
         primary_sheet = f"{mmyy}D"
         backup_sheet = f"{mmyy}C"
-        
+
         # 3. If-Else Logic for sheet selection
         if primary_sheet in all_sheet_titles:
             worksheet = sh.worksheet(primary_sheet)
@@ -207,14 +189,14 @@ def calendar_view(client, spreadsheet_name, mmyy):
 
         # Data starts from index 3 (Row 4)
         rows = raw_data[3:]
-        
+
         # Initialize dictionary for 31 days
         roster = {str(day): {"duty": [], "standby": []} for day in range(1, 32)}
 
         for row in rows:
             # Safety check: skip empty rows or rows without names
-            if not row or len(row) < 2 or not row[1].strip(): 
-                continue # Use continue instead of break to handle gaps in the spreadsheet
+            if not row or len(row) < 2 or not row[1].strip():
+                continue
 
             name = row[1].strip()
 
@@ -223,7 +205,7 @@ def calendar_view(client, spreadsheet_name, mmyy):
                 col_idx = 4 + i
                 if col_idx >= len(row):
                     break
-            
+
                 day_num = str(i + 1)
                 planned_status = row[col_idx].strip().upper()
 
@@ -232,8 +214,8 @@ def calendar_view(client, spreadsheet_name, mmyy):
                         roster[day_num]["duty"].append(name)
                     elif planned_status == 'S':
                         roster[day_num]["standby"].append(name)
-        
+
         return roster, sheet_used, None
-        
+
     except Exception as e:
-        return None, str(e)
+        return None, None, str(e)
