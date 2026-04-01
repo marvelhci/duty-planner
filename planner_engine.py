@@ -845,7 +845,6 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     else:
         print("Could not find a feasible solution for Standby.")
 
-
     return planned_df, normal_scale, status, {
         'row_start': row_start,
         'row_end': row_end,
