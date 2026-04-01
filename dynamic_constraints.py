@@ -254,7 +254,7 @@ def apply_dynamic_constraints(
                             if (r,c) in fixed_duties:
                                 continue
                             if (col_to_date[c] - last_d).days < days:
-                                model.Add(x[(r,c)] == 0)== 0)
+                                model.Add(x[(r,c)] == 0)== 0
                             else:
                                 break
                     # internal
