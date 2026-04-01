@@ -773,24 +773,27 @@ def run_optimisation(data_bundle, config, point_allocations, model_constraints, 
     # availability creation
     for r in range(row_start, row_end + 1):
         status_val = str(fix_assignment_df.iat[r, OFFSET_COL + 1]).strip().upper()
-        is_excluded = any(k in status_val for k in exclusion_keywords)
+        is_excluded_for_month = any(keyword in status_val for keyword in exclusion_keywords)
 
         for c in range(date_start_col, date_end_col + 1):
-            # skip if excluded by status, female pair flag, or has any manual D
-            if is_excluded or is_female_pair.get(r, False) or r in rows_with_manual_d:
-                continue
+            # 1. Read the cell value
+            cell = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
+            
+            # 2. YOUR LOGIC: If they are SBF/Excused, treat any non-manual 'D' as an 'X'
+            if is_excluded_for_month and cell != "D":
+                cell = "X"
 
-            # skip if already assigned a D (including the manual ones)
-            if planned_df.iat[r, c] == "D":
-                continue
+            # 3. Create the variable
+            x[(r, c)] = model.NewBoolVar(f"x_{r}_{c}")
 
-            # skip if the cell is marked X
-            cell_val = str(constraint_df.iat[r, c]).strip().upper() if not pd.isna(constraint_df.iat[r, c]) else ""
-            if cell_val == "X":
-                continue
-
-            # otherwise, create the S variable
-            s[(r, c)] = model_s.NewBoolVar(f"s_{r}_{c}")
+            # 4. Standard logic: If cell is X (now includes SBF rows), force to 0
+            if cell == "X":
+                model.Add(x[(r, c)] == 0)
+            
+            # 5. Handle manual D (Manual D still works even if they are SBF)
+            elif cell == "D":
+                model.Add(x[(r, c)] == 1)
+                fixed_duties.add((r, c))
 
     # --------------------------------------------------
     # DYNAMIC STANDBY CONSTRAINTS

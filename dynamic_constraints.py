@@ -174,17 +174,9 @@ def apply_dynamic_constraints(
 
                 elif per == "month" and subj2 == "D":
                     for r in range(row_start, row_end+1):
-                        status_val = str(fix_assignment_df.iat[r, OFFSET_COL+1]).strip().upper()
-                        is_excl = any(k in status_val for k in exclusion_keywords)
                         total = [x[(r,c)] for c in range(date_start_col, date_end_col+1)
                             if (r,c) not in fixed_duties]
                         if operator == "<=" and not is_soft:
-                            if is_excl:
-                                num_hol = sum(1 for c in holiday_cols if (r,c) in fixed_duties)
-                                model.Add(sum(total) == num_hol)
-                            elif is_female_pair.get(r, False):
-                                model.Add(sum(total) <= number-1)
-                            else:
                                 model.Add(sum(total) <= number)
                         elif operator == ">=" and is_soft:
                             has_at_least_one_duty[r] = model.NewBoolVar(f"has_duty_{cid}_{r}")
