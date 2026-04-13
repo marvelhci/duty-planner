@@ -1,5 +1,13 @@
 from datetime import date
 
+def _col_letter(n):
+    """Convert 1-based column index to spreadsheet letter(s), e.g. 1→A, 27→AA."""
+    result = ""
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
 def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
     try:
         sh = client.open(spreadsheet_name)
@@ -24,11 +32,16 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         except:
             pass
 
-        # get traits from Namelist sheet column E
-        traits = ""
+        # get trait values — any column beyond D (index 4+) is a trait column
+        # read headers from row 1 to find trait column positions
+        traits = {}
         try:
-            traits = nl_ws.cell(nl_cell.row, 5).value or ""
-            traits = traits.strip()
+            all_headers = nl_ws.row_values(1)  # e.g. ['', 'NAME', 'BRANCH', 'DRIVING', 'Seniority', 'Team']
+            for col_idx, header in enumerate(all_headers[4:], start=5):  # col 5 onward (1-indexed)
+                header = header.strip()
+                if header:
+                    val = nl_ws.cell(nl_cell.row, col_idx).value or ""
+                    traits[header] = val.strip()
         except:
             pass
 
@@ -38,17 +51,25 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         c_list = [str(i+1) for i, v in enumerate(row_values[4:35]) if v == 'X']
         p_list = [str(i+1) for i, v in enumerate(row_values[4:35]) if v == 'D']
 
-        return {
+        result = {
             "partner": partner,
             "driving": driving,
-            "traits": traits,
             "constraints": ", ".join(c_list),
             "preferences": ", ".join(p_list)
         }
+        # add trait values as 'trait_<CategoryName>' keys so the form can pre-populate
+        for cat, val in traits.items():
+            result[f"trait_{cat}"] = val
+        return result
     except:
         return None
 
-def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving_status, traits, constraints, preferences, status_string):
+def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving_status, selected_traits, constraints, preferences, status_string):
+    """
+    selected_traits: dict of { category_name: chosen_option }
+                     e.g. {'Seniority': 'Senior', 'Team': 'Alpha'}
+                     Written to the matching header columns in the Namelist sheet.
+    """
     logs = []
     try:
         sh = client.open(spreadsheet_name)
@@ -63,13 +84,26 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
         except:
             logs.append(f"⚠️ Could not update driving status in Namelist for {user_name}")
 
-        # update traits in Namelist sheet column E
-        try:
-            nl_cell = nl_ws.find(user_name, in_column=2)
-            nl_ws.update_acell(f'E{nl_cell.row}', traits.strip() if traits else "")
-            logs.append(f"✅ Step 1a-traits: Updated traits in Namelist for {user_name}")
-        except:
-            logs.append(f"⚠️ Could not update traits in Namelist for {user_name}")
+        # update trait values — find each category's column by header name in row 1
+        if selected_traits:
+            try:
+                nl_cell = nl_ws.find(user_name, in_column=2)
+                all_headers = nl_ws.row_values(1)
+                trait_updates = []
+                for cat, val in selected_traits.items():
+                    # find the column index (1-based) for this category header
+                    for col_idx, header in enumerate(all_headers, start=1):
+                        if header.strip() == cat:
+                            trait_updates.append({
+                                'range': f'{_col_letter(col_idx)}{nl_cell.row}',
+                                'values': [[val or ""]]
+                            })
+                            break
+                if trait_updates:
+                    nl_ws.batch_update(trait_updates, value_input_option='USER_ENTERED')
+                logs.append(f"✅ Step 1b: Updated trait values in Namelist for {user_name}")
+            except Exception as e:
+                logs.append(f"⚠️ Could not update traits in Namelist for {user_name}: {e}")
 
         # update Partners sheet
         # structure: col B = Names (everyone), col C = Partner

@@ -68,15 +68,29 @@ def apply_dynamic_constraints(
                    for r in range(row_start, row_end+1)}
     name_to_branch  = {}
     name_to_driving = {}
+    # name_to_traits: { name -> { category -> option } }
+    # Trait columns are any columns beyond index 3 (col D) that have a non-empty header.
     name_to_traits  = {}
+    trait_col_headers = []
+    if len(namelist_df.columns) > 4:
+        trait_col_headers = [
+            str(namelist_df.columns[i]).strip()
+            for i in range(4, len(namelist_df.columns))
+            if str(namelist_df.columns[i]).strip() not in ("", "NAN")
+        ]
     for i in range(len(namelist_df)):
         n = str(namelist_df.iloc[i,1]).strip().upper()
         b = str(namelist_df.iloc[i,2]).strip().upper() if len(namelist_df.columns)>2 else ""
         d = str(namelist_df.iloc[i,3]).strip().upper() if len(namelist_df.columns)>3 else ""
-        t = str(namelist_df.iloc[i,4]).strip().upper() if len(namelist_df.columns)>4 else ""
         name_to_branch[n]  = b
         name_to_driving[n] = d
-        name_to_traits[n]  = t if t not in ("", "NAN") else ""
+        trait_vals = {}
+        for j, hdr in enumerate(trait_col_headers):
+            col_idx = 4 + j
+            raw = str(namelist_df.iloc[i, col_idx]).strip() if col_idx < len(namelist_df.columns) else ""
+            if raw and raw.upper() != "NAN":
+                trait_vals[hdr.upper()] = raw.upper()
+        name_to_traits[n] = trait_vals
 
     # partner row pairs already built outside
     partner_row_set = set()
@@ -374,19 +388,20 @@ def apply_dynamic_constraints(
                         model.Add(dc == 1).OnlyEnforceIf(mm.Not())
                         soft_penalties.append(mm * penalty)
 
-            elif trait.upper() not in ("SAME_GENDER", "SAME_BRANCH", "PARTNERS", "DRIVERS"):
-                # ── Dynamic trait grouping ─────────────────────────────────────
-                # `trait` in the rule JSON is the actual trait label defined in Dev
-                # (e.g. "Alpha", "Team A"). Everyone whose Namelist col E matches
-                # that label forms one group.
+            elif "::" in trait:
+                # ── Dynamic trait grouping: "CategoryName::OptionValue" ────────
+                # Groups all people whose Namelist trait column for CategoryName
+                # equals OptionValue.
                 #
-                # logic "cannot": at most 1 from the group on duty per day
-                # logic "must":   group is together or fully absent (no partial)
-                # Both support soft (penalise) and hard (enforce) modes.
-                trait_upper = trait.upper()
+                # logic "cannot": at most 1 from the group per day (soft or hard)
+                # logic "must":   group is 0 or all together, never partial
+                #
+                # Example CONFIG rule JSON:
+                #   {"class":"grouping","trait":"Seniority::Senior","logic":"cannot","soft":true,"penalty":50}
+                cat_upper, opt_upper = [s.strip().upper() for s in trait.split("::", 1)]
                 trait_rows = [
                     r for r in range(row_start, row_end+1)
-                    if name_to_traits.get(row_to_name.get(r, ""), "") == trait_upper
+                    if name_to_traits.get(row_to_name.get(r, ""), {}).get(cat_upper, "") == opt_upper
                 ]
                 if len(trait_rows) < 2:
                     continue
@@ -400,7 +415,7 @@ def apply_dynamic_constraints(
                         if len(tvars) < 2:
                             continue
                         if is_soft:
-                            viol = model.NewBoolVar(f"dyntrait_viol_{cid}_{trait_upper}_{c}")
+                            viol = model.NewBoolVar(f"dyntrait_viol_{cid}_{cat_upper}_{opt_upper}_{c}")
                             model.Add(sum(tvars) < 2).OnlyEnforceIf(viol.Not())
                             model.Add(sum(tvars) >= 2).OnlyEnforceIf(viol)
                             soft_penalties.append(viol * penalty)
@@ -413,21 +428,21 @@ def apply_dynamic_constraints(
                                  if (r,c) in duty_vars and (r,c) not in fixed_duties]
                         if len(tvars) < 2:
                             continue
-                        tc = model.NewIntVar(0, len(tvars), f"dyntrait_tc_{cid}_{trait_upper}_{c}")
+                        tc = model.NewIntVar(0, len(tvars), f"dyntrait_tc_{cid}_{cat_upper}_{opt_upper}_{c}")
                         model.Add(tc == sum(tvars))
                         if is_soft:
-                            is_full = model.NewBoolVar(f"dyntrait_full_{cid}_{trait_upper}_{c}")
-                            is_none = model.NewBoolVar(f"dyntrait_none_{cid}_{trait_upper}_{c}")
+                            is_full = model.NewBoolVar(f"dyntrait_full_{cid}_{cat_upper}_{opt_upper}_{c}")
+                            is_none = model.NewBoolVar(f"dyntrait_none_{cid}_{cat_upper}_{opt_upper}_{c}")
                             model.Add(tc == len(tvars)).OnlyEnforceIf(is_full)
                             model.Add(tc < len(tvars)).OnlyEnforceIf(is_full.Not())
                             model.Add(tc == 0).OnlyEnforceIf(is_none)
                             model.Add(tc > 0).OnlyEnforceIf(is_none.Not())
-                            partial = model.NewBoolVar(f"dyntrait_partial_{cid}_{trait_upper}_{c}")
+                            partial = model.NewBoolVar(f"dyntrait_partial_{cid}_{cat_upper}_{opt_upper}_{c}")
                             model.AddBoolAnd([is_full.Not(), is_none.Not()]).OnlyEnforceIf(partial)
                             model.AddBoolOr([is_full, is_none]).OnlyEnforceIf(partial.Not())
                             soft_penalties.append(partial * penalty)
                         else:
-                            is_grp = model.NewBoolVar(f"dyntrait_grp_{cid}_{trait_upper}_{c}")
+                            is_grp = model.NewBoolVar(f"dyntrait_grp_{cid}_{cat_upper}_{opt_upper}_{c}")
                             model.Add(tc == len(tvars)).OnlyEnforceIf(is_grp)
                             model.Add(tc == 0).OnlyEnforceIf(is_grp.Not())
 
