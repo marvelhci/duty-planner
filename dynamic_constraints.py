@@ -376,28 +376,20 @@ def apply_dynamic_constraints(
 
             elif trait.upper() not in ("SAME_GENDER", "SAME_BRANCH", "PARTNERS", "DRIVERS"):
                 # ── Dynamic trait grouping ─────────────────────────────────────
-                # `trait` in the rule JSON is the actual trait label (e.g. "Alpha",
-                # "Team A"). Everyone whose Namelist col E matches that label
-                # (case-insensitive) forms one group.
+                # `trait` in the rule JSON is the actual trait label defined in Dev
+                # (e.g. "Alpha", "Team A"). Everyone whose Namelist col E matches
+                # that label forms one group.
                 #
-                # Supported logic values:
-                #   "cannot"  – at most 1 person from the group on duty per day
-                #               (soft: penalise, hard: hard constraint)
-                #   "must"    – the group must be together (0 or all, never partial)
-                #               (soft: penalise partial, hard: enforce)
-                #
-                # Example CONFIG rule JSON:
-                #   {"class":"grouping","trait":"Alpha","logic":"cannot","soft":true,"penalty":50}
-                #   {"class":"grouping","trait":"Team A","logic":"must","soft":false,"penalty":0}
-                #
+                # logic "cannot": at most 1 from the group on duty per day
+                # logic "must":   group is together or fully absent (no partial)
+                # Both support soft (penalise) and hard (enforce) modes.
                 trait_upper = trait.upper()
                 trait_rows = [
                     r for r in range(row_start, row_end+1)
                     if name_to_traits.get(row_to_name.get(r, ""), "") == trait_upper
                 ]
-
                 if len(trait_rows) < 2:
-                    continue  # nothing to constrain if group has 0 or 1 member
+                    continue
 
                 duty_vars = x if rule.get("duty_type", "D").upper() != "S" else s
 
@@ -424,7 +416,6 @@ def apply_dynamic_constraints(
                         tc = model.NewIntVar(0, len(tvars), f"dyntrait_tc_{cid}_{trait_upper}_{c}")
                         model.Add(tc == sum(tvars))
                         if is_soft:
-                            # penalise when group is partially present (tc > 0 but tc < len)
                             is_full = model.NewBoolVar(f"dyntrait_full_{cid}_{trait_upper}_{c}")
                             is_none = model.NewBoolVar(f"dyntrait_none_{cid}_{trait_upper}_{c}")
                             model.Add(tc == len(tvars)).OnlyEnforceIf(is_full)

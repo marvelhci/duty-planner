@@ -24,7 +24,7 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         except:
             pass
 
-        # get traits from Namelist sheet column E (same row as driving status)
+        # get traits from Namelist sheet column E
         traits = ""
         try:
             traits = nl_ws.cell(nl_cell.row, 5).value or ""

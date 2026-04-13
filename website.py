@@ -78,19 +78,15 @@ def fetch_namelist(_client, spreadsheet_name):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_trait_options(_client, spreadsheet_name):
-    """Return sorted list of unique non-empty trait values from Namelist col E."""
+    """Return the ordered list of trait labels managed by Dev (stored in CONFIG _TRAITS row)."""
     try:
         sh = _client.open(spreadsheet_name)
-        ws = sh.worksheet("Namelist")
-        all_vals = ws.col_values(5)  # column E (1-indexed)
-        seen = set()
-        opts = []
-        for v in all_vals[1:]:  # skip header row
-            v = v.strip()
-            if v and v not in seen:
-                seen.add(v)
-                opts.append(v)
-        return sorted(opts)
+        ws = sh.worksheet("CONFIG")
+        for row in ws.get_all_values():
+            if row and row[0].strip() == "_TRAITS":
+                raw = row[1].strip() if len(row) > 1 else ""
+                return [t.strip() for t in raw.split(",") if t.strip()]
+        return []
     except Exception as e:
         print(f"Error fetching trait options: {e}")
         return []
@@ -1813,7 +1809,8 @@ def _rule_to_sentence(rule):
             "same_branch":  "Same branch",
             "drivers":      "Drivers",
         }
-        trait_str = trait_map.get(trait, trait)
+        # built-in traits use the map; custom traits display as-is with quotes
+        trait_str = trait_map.get(trait, f'"{trait}"')
         if logic == "must_match_d":
             return f"{prefix} **{trait_str}** of S must match D on the same day"
         return f"{prefix} **{trait_str}** **{logic}** be together{penalty_str}"
@@ -1857,6 +1854,66 @@ if role == 'Dev':
                     st.warning("⚠️ Password rows not found in CONFIG sheet.")
             except Exception as e:
                 st.error(f"❌ Failed to save passwords: {e}")
+
+    # ── Trait Groups ──
+    st.markdown("---")
+    st.subheader("🏷️ Trait Groups")
+    with st.container(border=True):
+        st.caption("Trait groups appear as options in the user form and in the grouping constraint builder. "
+                   "Each person can be assigned to one trait group via the user form.")
+        _cur_traits = fetch_trait_options(client, "MASTER SHEET")
+        _trait_display = ", ".join(_cur_traits) if _cur_traits else "*(none yet)*"
+        st.markdown(f"**Current traits:** {_trait_display}")
+
+        tr_col1, tr_col2 = st.columns(2)
+        with tr_col1:
+            new_trait_name = st.text_input("Add trait", placeholder="e.g. Alpha", key="dev_new_trait")
+            if st.button("➕ Add Trait", use_container_width=True, key="dev_add_trait"):
+                if not new_trait_name.strip():
+                    st.error("❌ Trait name cannot be empty.")
+                elif new_trait_name.strip() in _cur_traits:
+                    st.warning(f"⚠️ '{new_trait_name.strip()}' already exists.")
+                else:
+                    try:
+                        _updated = _cur_traits + [new_trait_name.strip()]
+                        _tr_ws = client.open("MASTER SHEET").worksheet("CONFIG")
+                        _tr_rows = _tr_ws.get_all_values()
+                        _trait_row_idx = next((i for i, r in enumerate(_tr_rows)
+                                               if r and r[0].strip() == "_TRAITS"), None)
+                        if _trait_row_idx is not None:
+                            _tr_ws.update_acell(f"B{_trait_row_idx+1}", ", ".join(_updated))
+                        else:
+                            # append a new _TRAITS row before the KEY section
+                            _key_idx = next((i for i, r in enumerate(_tr_rows)
+                                             if r and r[0].strip().upper() == "KEY"), len(_tr_rows))
+                            _tr_ws.insert_row(["_TRAITS", ", ".join(_updated)], _key_idx + 1)
+                        fetch_trait_options.clear()
+                        fetch_config.clear()
+                        st.success(f"✅ Added trait '{new_trait_name.strip()}'")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Failed to add trait: {e}")
+
+        with tr_col2:
+            if _cur_traits:
+                del_trait = st.selectbox("Remove trait", options=_cur_traits, key="dev_del_trait")
+                if st.button("🗑️ Remove Trait", use_container_width=True, key="dev_remove_trait"):
+                    try:
+                        _updated = [t for t in _cur_traits if t != del_trait]
+                        _tr_ws = client.open("MASTER SHEET").worksheet("CONFIG")
+                        _tr_rows = _tr_ws.get_all_values()
+                        _trait_row_idx = next((i for i, r in enumerate(_tr_rows)
+                                               if r and r[0].strip() == "_TRAITS"), None)
+                        if _trait_row_idx is not None:
+                            _tr_ws.update_acell(f"B{_trait_row_idx+1}", ", ".join(_updated))
+                        fetch_trait_options.clear()
+                        fetch_config.clear()
+                        st.success(f"✅ Removed trait '{del_trait}'")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Failed to remove trait: {e}")
+            else:
+                st.caption("No traits to remove yet.")
 
     # ── Constraint Settings ──
     st.markdown("---")
@@ -1992,9 +2049,15 @@ if role == 'Dev':
                     _preview_rule.update({"from_type":nc_from,"to_type":nc_to,"days":nc_days,"penalty":0})
 
                 elif nc_cls == "grouping":
+                    _BUILTIN_TRAITS    = ["same_gender", "partners", "same_branch", "drivers"]
+                    _BUILTIN_TRAIT_LBL = {"same_gender":"Same Gender","partners":"Partners","same_branch":"Same Branch","drivers":"Drivers"}
+                    _live_traits       = fetch_trait_options(client, "MASTER SHEET")
+                    _all_traits        = _BUILTIN_TRAITS + _live_traits
+                    def _trait_fmt(x):
+                        return _BUILTIN_TRAIT_LBL.get(x, f'Trait group: "{x}"')
                     grc1, grc2 = st.columns(2)
-                    with grc1: nc_trait   = st.selectbox("Trait", _TRAITS,
-                                                          format_func=lambda x: _TRAIT_LBL[x], key="nc_gr_trait")
+                    with grc1: nc_trait   = st.selectbox("Trait", _all_traits,
+                                                          format_func=_trait_fmt, key="nc_gr_trait")
                     with grc2: nc_logic_g = st.selectbox("Logic", _LOGICS_GROUPING, key="nc_gr_logic")
                     if nc_type == "soft":
                         nc_penalty = st.number_input("Penalty", min_value=0, value=100, step=10, key="nc_gr_penalty")
@@ -2202,20 +2265,14 @@ if role == 'User':
                     status_string = ", ".join(selected_status)
 
             with col5:
-                trait_options_raw = fetch_trait_options(client, spreadsheet_name)
-                # build list: blank = no trait, then all existing values, then "Add new..."
-                trait_dropdown = [""] + trait_options_raw + ["✏️ Enter new trait..."]
-                current_trait = defaults.get("traits", "")
-                if current_trait and current_trait not in trait_options_raw:
-                    # user has a trait not yet in the list — prepend it so it shows correctly
-                    trait_dropdown = [""] + [current_trait] + trait_options_raw + ["✏️ Enter new trait..."]
-                t_idx = trait_dropdown.index(current_trait) if current_trait in trait_dropdown else 0
-                trait_selection = st.selectbox("Your Trait Group", options=trait_dropdown, index=t_idx)
-                if trait_selection == "✏️ Enter new trait...":
-                    selected_traits = st.text_input("Enter trait name", placeholder="e.g. Alpha")
-                else:
-                    selected_traits = trait_selection
-                
+                _trait_opts = fetch_trait_options(client, spreadsheet_name)
+                _trait_dropdown = [""] + _trait_opts  # blank = no trait assigned
+                _cur_trait = defaults.get("traits", "")
+                _t_idx = _trait_dropdown.index(_cur_trait) if _cur_trait in _trait_dropdown else 0
+                selected_traits = st.selectbox("Your Trait Group", options=_trait_dropdown,
+                                               index=_t_idx,
+                                               format_func=lambda x: x if x else "— none —")
+
             final_constraints = st.text_input("Constraints (X)", value=constraints_string)
             final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
 
@@ -2231,7 +2288,6 @@ if role == 'User':
                         )
                         if success:
                             st.success("Preferences updated successfully!")
-                            fetch_trait_options.clear()  # refresh dropdown on next load
                             # clear session state on success
                             st.session_state.hist_constraints = []
                             st.session_state.hist_preferences = []
