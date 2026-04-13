@@ -68,12 +68,15 @@ def apply_dynamic_constraints(
                    for r in range(row_start, row_end+1)}
     name_to_branch  = {}
     name_to_driving = {}
+    name_to_traits  = {}
     for i in range(len(namelist_df)):
         n = str(namelist_df.iloc[i,1]).strip().upper()
         b = str(namelist_df.iloc[i,2]).strip().upper() if len(namelist_df.columns)>2 else ""
         d = str(namelist_df.iloc[i,3]).strip().upper() if len(namelist_df.columns)>3 else ""
+        t = str(namelist_df.iloc[i,4]).strip().upper() if len(namelist_df.columns)>4 else ""
         name_to_branch[n]  = b
         name_to_driving[n] = d
+        name_to_traits[n]  = t if t not in ("", "NAN") else ""
 
     # partner row pairs already built outside
     partner_row_set = set()
@@ -370,5 +373,71 @@ def apply_dynamic_constraints(
                         model.Add(dc != 1).OnlyEnforceIf(mm)
                         model.Add(dc == 1).OnlyEnforceIf(mm.Not())
                         soft_penalties.append(mm * penalty)
+
+            elif trait.upper() not in ("SAME_GENDER", "SAME_BRANCH", "PARTNERS", "DRIVERS"):
+                # ── Dynamic trait grouping ─────────────────────────────────────
+                # `trait` in the rule JSON is the actual trait label (e.g. "Alpha",
+                # "Team A"). Everyone whose Namelist col E matches that label
+                # (case-insensitive) forms one group.
+                #
+                # Supported logic values:
+                #   "cannot"  – at most 1 person from the group on duty per day
+                #               (soft: penalise, hard: hard constraint)
+                #   "must"    – the group must be together (0 or all, never partial)
+                #               (soft: penalise partial, hard: enforce)
+                #
+                # Example CONFIG rule JSON:
+                #   {"class":"grouping","trait":"Alpha","logic":"cannot","soft":true,"penalty":50}
+                #   {"class":"grouping","trait":"Team A","logic":"must","soft":false,"penalty":0}
+                #
+                trait_upper = trait.upper()
+                trait_rows = [
+                    r for r in range(row_start, row_end+1)
+                    if name_to_traits.get(row_to_name.get(r, ""), "") == trait_upper
+                ]
+
+                if len(trait_rows) < 2:
+                    continue  # nothing to constrain if group has 0 or 1 member
+
+                duty_vars = x if rule.get("duty_type", "D").upper() != "S" else s
+
+                if logic == "cannot":
+                    for c in range(date_start_col, date_end_col+1):
+                        tvars = [duty_vars[(r,c)] for r in trait_rows
+                                 if (r,c) in duty_vars and (r,c) not in fixed_duties]
+                        if len(tvars) < 2:
+                            continue
+                        if is_soft:
+                            viol = model.NewBoolVar(f"dyntrait_viol_{cid}_{trait_upper}_{c}")
+                            model.Add(sum(tvars) < 2).OnlyEnforceIf(viol.Not())
+                            model.Add(sum(tvars) >= 2).OnlyEnforceIf(viol)
+                            soft_penalties.append(viol * penalty)
+                        else:
+                            model.Add(sum(tvars) <= 1)
+
+                elif logic == "must":
+                    for c in range(date_start_col, date_end_col+1):
+                        tvars = [duty_vars[(r,c)] for r in trait_rows
+                                 if (r,c) in duty_vars and (r,c) not in fixed_duties]
+                        if len(tvars) < 2:
+                            continue
+                        tc = model.NewIntVar(0, len(tvars), f"dyntrait_tc_{cid}_{trait_upper}_{c}")
+                        model.Add(tc == sum(tvars))
+                        if is_soft:
+                            # penalise when group is partially present (tc > 0 but tc < len)
+                            is_full = model.NewBoolVar(f"dyntrait_full_{cid}_{trait_upper}_{c}")
+                            is_none = model.NewBoolVar(f"dyntrait_none_{cid}_{trait_upper}_{c}")
+                            model.Add(tc == len(tvars)).OnlyEnforceIf(is_full)
+                            model.Add(tc < len(tvars)).OnlyEnforceIf(is_full.Not())
+                            model.Add(tc == 0).OnlyEnforceIf(is_none)
+                            model.Add(tc > 0).OnlyEnforceIf(is_none.Not())
+                            partial = model.NewBoolVar(f"dyntrait_partial_{cid}_{trait_upper}_{c}")
+                            model.AddBoolAnd([is_full.Not(), is_none.Not()]).OnlyEnforceIf(partial)
+                            model.AddBoolOr([is_full, is_none]).OnlyEnforceIf(partial.Not())
+                            soft_penalties.append(partial * penalty)
+                        else:
+                            is_grp = model.NewBoolVar(f"dyntrait_grp_{cid}_{trait_upper}_{c}")
+                            model.Add(tc == len(tvars)).OnlyEnforceIf(is_grp)
+                            model.Add(tc == 0).OnlyEnforceIf(is_grp.Not())
 
     return soft_penalties, has_at_least_one_duty

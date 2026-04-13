@@ -76,6 +76,25 @@ def fetch_namelist(_client, spreadsheet_name):
         print(f"Error fetching namelist: {e}")
         return []
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_trait_options(_client, spreadsheet_name):
+    """Return sorted list of unique non-empty trait values from Namelist col E."""
+    try:
+        sh = _client.open(spreadsheet_name)
+        ws = sh.worksheet("Namelist")
+        all_vals = ws.col_values(5)  # column E (1-indexed)
+        seen = set()
+        opts = []
+        for v in all_vals[1:]:  # skip header row
+            v = v.strip()
+            if v and v not in seen:
+                seen.add(v)
+                opts.append(v)
+        return sorted(opts)
+    except Exception as e:
+        print(f"Error fetching trait options: {e}")
+        return []
+
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
     gs_query = (
@@ -462,7 +481,7 @@ if role == 'Admin':
                         constraints_raw.iloc[:, 42] = pd.to_numeric(constraints_raw.iloc[:, 42], errors='coerce').fillna(0)
                         holidays_raw = get_df("Holiday", header_row=0)
                         partners_raw = get_df("Partners", header_row=0, use_cols=3)
-                        namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
+                        namelist_raw = get_df("Namelist", header_row=0, use_cols=5)
 
                         try:
                             last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=2)
@@ -487,7 +506,7 @@ if role == 'Admin':
                             "carry_scale": carry_scale
                         }
 
-                        planned_df, n_scale, status, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides)
+                        planned_df, n_scale, status, status_s, ranges = planner_engine.run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides)
 
                         if planned_df is not None:
                             st.session_state['planned_df'] = planned_df
@@ -529,9 +548,15 @@ if role == 'Admin':
                                         st.warning(f"⚠️ Could not create {next_year_str} sheet: {e}")
 
                             if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-                                st.success("✅ Optimisation Successful!")
+                                if status_s == cp_model.OPTIMAL or status_s == cp_model.FEASIBLE:
+                                    st.success("✅ Optimisation Successful!")
+                                else:
+                                    st.warning("⚠️ Standby Pass Unsuccessful")
                             else:
-                                st.warning("⚠️ No Solution Found")
+                                if status_s == cp_model.OPTIMAL or status_s == cp_model.FEASIBLE:
+                                    st.warning("⚠️ Duty Pass Unsuccessful")
+                                else:
+                                    st.warning("⚠️ No Solution Found")
                 except Exception:
                     st.error("❌ Critical Error Detected")
                     st.code(traceback.format_exc())
@@ -2081,7 +2106,7 @@ if role == 'User':
         if selected_name:
             st.session_state["user_selected_name"] = selected_name
 
-        defaults = {"partner": "None", "driving": "NON-DRIVER", "constraints": "", "preferences": ""}
+        defaults = {"partner": "None", "driving": "NON-DRIVER", "traits": "", "constraints": "", "preferences": ""}
 
         if selected_name:
             if "last_fetched_user" not in st.session_state or st.session_state.last_fetched_user != selected_name:
@@ -2152,7 +2177,7 @@ if role == 'User':
 
         with st.form("user_submission_form"):
             st.subheader("Step 3: Finalise Details")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
                 d_options = ["NON-DRIVER", "DRIVER", "RIDER"]
@@ -2175,6 +2200,21 @@ if role == 'User':
                     status_string = ", ".join(selected_status) + f" ({excused_reason})"
                 else:
                     status_string = ", ".join(selected_status)
+
+            with col5:
+                trait_options_raw = fetch_trait_options(client, spreadsheet_name)
+                # build list: blank = no trait, then all existing values, then "Add new..."
+                trait_dropdown = [""] + trait_options_raw + ["✏️ Enter new trait..."]
+                current_trait = defaults.get("traits", "")
+                if current_trait and current_trait not in trait_options_raw:
+                    # user has a trait not yet in the list — prepend it so it shows correctly
+                    trait_dropdown = [""] + [current_trait] + trait_options_raw + ["✏️ Enter new trait..."]
+                t_idx = trait_dropdown.index(current_trait) if current_trait in trait_dropdown else 0
+                trait_selection = st.selectbox("Your Trait Group", options=trait_dropdown, index=t_idx)
+                if trait_selection == "✏️ Enter new trait...":
+                    selected_traits = st.text_input("Enter trait name", placeholder="e.g. Alpha")
+                else:
+                    selected_traits = trait_selection
                 
             final_constraints = st.text_input("Constraints (X)", value=constraints_string)
             final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
@@ -2187,10 +2227,11 @@ if role == 'User':
                         success, logs = user_engine.update_user_data(
                             client, spreadsheet_name, view_mmyy, 
                             selected_name, selected_partner, 
-                            driving_status, final_constraints, final_preferences, status_string
+                            driving_status, selected_traits, final_constraints, final_preferences, status_string
                         )
                         if success:
                             st.success("Preferences updated successfully!")
+                            fetch_trait_options.clear()  # refresh dropdown on next load
                             # clear session state on success
                             st.session_state.hist_constraints = []
                             st.session_state.hist_preferences = []

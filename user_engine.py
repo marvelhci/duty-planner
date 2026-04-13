@@ -24,6 +24,14 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         except:
             pass
 
+        # get traits from Namelist sheet column E (same row as driving status)
+        traits = ""
+        try:
+            traits = nl_ws.cell(nl_cell.row, 5).value or ""
+            traits = traits.strip()
+        except:
+            pass
+
         # get X and D markers
         user_cell = c_ws.find(user_name, in_column=2)
         row_values = c_ws.row_values(user_cell.row)
@@ -33,13 +41,14 @@ def get_user_current_data(client, spreadsheet_name, mmyy, user_name):
         return {
             "partner": partner,
             "driving": driving,
+            "traits": traits,
             "constraints": ", ".join(c_list),
             "preferences": ", ".join(p_list)
         }
     except:
         return None
 
-def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving_status, constraints, preferences, status_string):
+def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving_status, traits, constraints, preferences, status_string):
     logs = []
     try:
         sh = client.open(spreadsheet_name)
@@ -53,6 +62,14 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
             logs.append(f"✅ Step 1a: Updated driving status in Namelist for {user_name}")
         except:
             logs.append(f"⚠️ Could not update driving status in Namelist for {user_name}")
+
+        # update traits in Namelist sheet column E
+        try:
+            nl_cell = nl_ws.find(user_name, in_column=2)
+            nl_ws.update_acell(f'E{nl_cell.row}', traits.strip() if traits else "")
+            logs.append(f"✅ Step 1a-traits: Updated traits in Namelist for {user_name}")
+        except:
+            logs.append(f"⚠️ Could not update traits in Namelist for {user_name}")
 
         # update Partners sheet
         # structure: col B = Names (everyone), col C = Partner
