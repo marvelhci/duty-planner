@@ -1972,11 +1972,6 @@ if role == 'Dev':
     st.markdown("---")
     st.subheader("🏷️ Trait Management")
     with st.container(border=True):
-        st.caption(
-            "Traits let you group people by custom categories. "
-            "Each category adds a question to the user form and a new column to the Namelist sheet. "
-            "Use a trait option in the grouping constraint builder to constrain that group."
-        )
         _trait_defs = fetch_trait_definitions(client, "MASTER SHEET")
 
         if _trait_defs:
@@ -2021,7 +2016,6 @@ if role == 'Dev':
         else:
             st.caption("No trait categories defined yet.")
 
-        st.markdown("---")
         st.markdown("**➕ Create new trait category**")
         _nc1, _nc2 = st.columns(2)
         with _nc1:
