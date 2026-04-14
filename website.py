@@ -76,6 +76,31 @@ def fetch_namelist(_client, spreadsheet_name):
         print(f"Error fetching namelist: {e}")
         return []
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_trait_definitions(_client, spreadsheet_name):
+    """
+    Returns an ordered dict: { category_name: [option1, option2, ...] }
+    Stored in CONFIG as rows: col A = '_TRAIT:<CategoryName>', col B = 'opt1,opt2,opt3'
+    """
+    try:
+        sh = _client.open(spreadsheet_name)
+        ws = sh.worksheet("CONFIG")
+        traits = {}
+        for row in ws.get_all_values():
+            if not row:
+                continue
+            key = row[0].strip()
+            if key.startswith("_TRAIT:"):
+                category = key[len("_TRAIT:"):].strip()
+                opts_raw = row[1].strip() if len(row) > 1 else ""
+                opts = [o.strip() for o in opts_raw.split(",") if o.strip()]
+                if category:
+                    traits[category] = opts
+        return traits
+    except Exception as e:
+        print(f"Error fetching trait definitions: {e}")
+        return {}
+
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
     gs_query = (
@@ -462,7 +487,7 @@ if role == 'Admin':
                         constraints_raw.iloc[:, 42] = pd.to_numeric(constraints_raw.iloc[:, 42], errors='coerce').fillna(0)
                         holidays_raw = get_df("Holiday", header_row=0)
                         partners_raw = get_df("Partners", header_row=0, use_cols=3)
-                        namelist_raw = get_df("Namelist", header_row=0, use_cols=4)
+                        namelist_raw = get_df("Namelist", header_row=0)
 
                         try:
                             last_month_raw = get_df(f"{m_old:02d}{y_old:02d}D", header_row=2)
@@ -1786,7 +1811,7 @@ if role == 'Admin':
             )
 
             _pen_amount = st.sidebar.slider(
-                "Penalty",
+                "Penalty (deducted from AQ offset)",
                 min_value=0.0, max_value=5.0, value=0.5, step=0.5,
                 key="pen_amount"
             )
@@ -1892,7 +1917,13 @@ def _rule_to_sentence(rule):
             "same_branch":  "Same branch",
             "drivers":      "Drivers",
         }
-        trait_str = trait_map.get(trait, trait)
+        if trait in trait_map:
+            trait_str = trait_map[trait]
+        elif "::" in trait:
+            cat, opt = trait.split("::", 1)
+            trait_str = f'{cat}: "{opt}"'
+        else:
+            trait_str = trait
         if logic == "must_match_d":
             return f"{prefix} **{trait_str}** of S must match D on the same day"
         return f"{prefix} **{trait_str}** **{logic}** be together{penalty_str}"
@@ -1936,6 +1967,98 @@ if role == 'Dev':
                     st.warning("⚠️ Password rows not found in CONFIG sheet.")
             except Exception as e:
                 st.error(f"❌ Failed to save passwords: {e}")
+
+    # ── Trait Management ──
+    st.markdown("---")
+    st.subheader("🏷️ Trait Management")
+    with st.container(border=True):
+        st.caption(
+            "Traits let you group people by custom categories. "
+            "Each category adds a question to the user form and a new column to the Namelist sheet. "
+            "Use a trait option in the grouping constraint builder to constrain that group."
+        )
+        _trait_defs = fetch_trait_definitions(client, "MASTER SHEET")
+
+        if _trait_defs:
+            for _tc, _topts in _trait_defs.items():
+                with st.expander(f"📌 **{_tc}** — options: {', '.join(_topts)}", expanded=False):
+                    _new_opt = st.text_input(f"Add option to '{_tc}'", key=f"dev_addopt_{_tc}",
+                                             placeholder="e.g. Senior")
+                    _oc1, _oc2 = st.columns(2)
+                    with _oc1:
+                        if st.button("➕ Add option", key=f"dev_addopt_btn_{_tc}", use_container_width=True):
+                            if not _new_opt.strip():
+                                st.error("Option name cannot be empty.")
+                            elif _new_opt.strip() in _topts:
+                                st.warning(f"'{_new_opt.strip()}' already exists.")
+                            else:
+                                try:
+                                    _updated_opts = _topts + [_new_opt.strip()]
+                                    _tr_ws = client.open("MASTER SHEET").worksheet("CONFIG")
+                                    for i, r in enumerate(_tr_ws.get_all_values()):
+                                        if r and r[0].strip() == f"_TRAIT:{_tc}":
+                                            _tr_ws.update_acell(f"B{i+1}", ",".join(_updated_opts))
+                                            break
+                                    fetch_trait_definitions.clear()
+                                    st.success(f"✅ Added '{_new_opt.strip()}' to {_tc}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ {e}")
+                    with _oc2:
+                        if st.button(f"🗑️ Delete '{_tc}'", key=f"dev_delcat_{_tc}", use_container_width=True):
+                            try:
+                                _tr_ws = client.open("MASTER SHEET").worksheet("CONFIG")
+                                _all_rows = _tr_ws.get_all_values()
+                                for i, r in enumerate(_all_rows):
+                                    if r and r[0].strip() == f"_TRAIT:{_tc}":
+                                        _tr_ws.delete_rows(i + 1)
+                                        break
+                                fetch_trait_definitions.clear()
+                                st.success(f"✅ Deleted trait category '{_tc}'")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ {e}")
+        else:
+            st.caption("No trait categories defined yet.")
+
+        st.markdown("---")
+        st.markdown("**➕ Create new trait category**")
+        _nc1, _nc2 = st.columns(2)
+        with _nc1:
+            _new_cat = st.text_input("Category name", key="dev_new_trait_cat",
+                                     placeholder="e.g. Seniority")
+        with _nc2:
+            _new_opts_raw = st.text_input("Options (comma-separated)", key="dev_new_trait_opts",
+                                          placeholder="e.g. Junior, Senior, Lead")
+        if st.button("➕ Create Trait Category", use_container_width=True, key="dev_create_trait"):
+            if not _new_cat.strip():
+                st.error("❌ Category name cannot be empty.")
+            elif not _new_opts_raw.strip():
+                st.error("❌ Please provide at least one option.")
+            elif _new_cat.strip() in _trait_defs:
+                st.warning(f"⚠️ '{_new_cat.strip()}' already exists.")
+            else:
+                try:
+                    _opts_list = [o.strip() for o in _new_opts_raw.split(",") if o.strip()]
+                    _tr_sh = client.open("MASTER SHEET")
+                    _tr_cfg = _tr_sh.worksheet("CONFIG")
+                    _cfg_rows = _tr_cfg.get_all_values()
+                    _key_idx = next(
+                        (i for i, r in enumerate(_cfg_rows) if r and r[0].strip().upper() == "KEY"),
+                        len(_cfg_rows)
+                    )
+                    _tr_cfg.insert_row([f"_TRAIT:{_new_cat.strip()}", ",".join(_opts_list)], _key_idx + 1)
+                    # add column header to Namelist sheet
+                    _nl_ws = _tr_sh.worksheet("Namelist")
+                    _nl_headers = _nl_ws.row_values(1)
+                    if _new_cat.strip() not in _nl_headers:
+                        _nl_ws.update_cell(1, len(_nl_headers) + 1, _new_cat.strip())
+                    fetch_trait_definitions.clear()
+                    fetch_config.clear()
+                    st.success(f"✅ Created '{_new_cat.strip()}' with options: {', '.join(_opts_list)}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to create trait: {e}")
 
     # ── Constraint Settings ──
     st.markdown("---")
@@ -2071,9 +2194,26 @@ if role == 'Dev':
                     _preview_rule.update({"from_type":nc_from,"to_type":nc_to,"days":nc_days,"penalty":0})
 
                 elif nc_cls == "grouping":
+                    _BUILTIN_TRAITS    = ["same_gender", "partners", "same_branch", "drivers"]
+                    _BUILTIN_TRAIT_LBL = {"same_gender":"Same Gender","partners":"Partners",
+                                          "same_branch":"Same Branch","drivers":"Drivers"}
+                    _live_trait_defs   = fetch_trait_definitions(client, "MASTER SHEET")
+                    _custom_trait_keys = [
+                        f"{cat}::{opt}"
+                        for cat, opts in _live_trait_defs.items()
+                        for opt in opts
+                    ]
+                    _all_trait_keys = _BUILTIN_TRAITS + _custom_trait_keys
+                    def _trait_fmt(x):
+                        if x in _BUILTIN_TRAIT_LBL:
+                            return _BUILTIN_TRAIT_LBL[x]
+                        if "::" in x:
+                            cat, opt = x.split("::", 1)
+                            return f'{cat}: "{opt}"'
+                        return x
                     grc1, grc2 = st.columns(2)
-                    with grc1: nc_trait   = st.selectbox("Trait", _TRAITS,
-                                                          format_func=lambda x: _TRAIT_LBL[x], key="nc_gr_trait")
+                    with grc1: nc_trait   = st.selectbox("Trait", _all_trait_keys,
+                                                          format_func=_trait_fmt, key="nc_gr_trait")
                     with grc2: nc_logic_g = st.selectbox("Logic", _LOGICS_GROUPING, key="nc_gr_logic")
                     if nc_type == "soft":
                         nc_penalty = st.number_input("Penalty", min_value=0, value=100, step=10, key="nc_gr_penalty")
@@ -2279,7 +2419,23 @@ if role == 'User':
                     status_string = ", ".join(selected_status) + f" ({excused_reason})"
                 else:
                     status_string = ", ".join(selected_status)
-                
+
+            # ── Dynamic trait questions — one selectbox per trait category ──
+            _form_trait_defs = fetch_trait_definitions(client, spreadsheet_name)
+            selected_traits = {}
+            if _form_trait_defs:
+                trait_cols = st.columns(len(_form_trait_defs))
+                for _tidx, (_cat, _opts) in enumerate(_form_trait_defs.items()):
+                    with trait_cols[_tidx]:
+                        _tdropdown = [""] + _opts
+                        _saved_val = defaults.get(f"trait_{_cat}", "")
+                        _sel_idx   = _tdropdown.index(_saved_val) if _saved_val in _tdropdown else 0
+                        selected_traits[_cat] = st.selectbox(
+                            _cat, options=_tdropdown, index=_sel_idx,
+                            format_func=lambda x: x if x else "— not set —",
+                            key=f"user_trait_{_cat}"
+                        )
+
             final_constraints = st.text_input("Constraints (X)", value=constraints_string)
             final_preferences = st.text_input("Duty Days (D)", value=preferences_string)
 
@@ -2289,16 +2445,16 @@ if role == 'User':
                 else:
                     with st.spinner("💾 Writing to Google Sheets..."):
                         success, logs = user_engine.update_user_data(
-                            client, spreadsheet_name, view_mmyy, 
-                            selected_name, selected_partner, 
-                            driving_status, final_constraints, final_preferences, status_string
+                            client, spreadsheet_name, view_mmyy,
+                            selected_name, selected_partner,
+                            driving_status, selected_traits,
+                            final_constraints, final_preferences, status_string
                         )
                         if success:
                             st.success("Preferences updated successfully!")
-                            # clear session state on success
                             st.session_state.hist_constraints = []
                             st.session_state.hist_preferences = []
-                            if "user_defaults" in st.session_state: 
+                            if "user_defaults" in st.session_state:
                                 del st.session_state.user_defaults
                             st.rerun()
                         else:
