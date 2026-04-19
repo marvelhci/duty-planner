@@ -192,6 +192,201 @@ def update_user_data(client, spreadsheet_name, mmyy, user_name, partner, driving
     except Exception as e:
         return False, [f"❌ Error: {str(e)}"]
 
+def get_roster_context(client, spreadsheet_name, mmyy):
+    """
+    Reads the {mmyy}C sheet and returns:
+      - day_duty_counts: { day_int: int }  — how many people have D on each day
+      - all_person_days:  { name_str: [day_int, ...] }  — each person's D days
+    Data rows start at index 3 (row 4), day cols are 0-indexed 4..34 (days 1..31).
+    """
+    day_duty_counts = {d: 0 for d in range(1, 32)}
+    all_person_days = {}
+    try:
+        sh = client.open(spreadsheet_name)
+        all_titles = [s.title for s in sh.worksheets()]
+        sheet_name = f"{mmyy}C"
+        if sheet_name not in all_titles:
+            return day_duty_counts, all_person_days
+        ws = sh.worksheet(sheet_name)
+        raw = ws.get_all_values()
+        data_rows = raw[3:]
+        for row in data_rows:
+            if not row or len(row) < 2 or not row[1].strip():
+                continue
+            name = row[1].strip()
+            person_d_days = []
+            for i in range(31):
+                col_idx = 4 + i
+                if col_idx >= len(row):
+                    break
+                if row[col_idx].strip().upper() == 'D':
+                    day_duty_counts[i + 1] += 1
+                    person_d_days.append(i + 1)
+            all_person_days[name] = person_d_days
+    except Exception:
+        pass
+    return day_duty_counts, all_person_days
+
+
+def get_applicable_constraints(config):
+    """
+    Parses CONFIG and returns a structured list of constraints that can be
+    validated client-side at submission time. Only hard constraints are returned.
+
+    Each entry is a dict with a 'kind' key:
+      - kind='day_max':    max D assignments per day     → {limit: int}
+      - kind='person_month_max': max D per person/month  → {limit: int}
+      - kind='person_week_max':  max D per person/week   → {limit: int}
+      - kind='gap_dd':    min days between a person's D  → {days: int}
+    """
+    import json as _json
+    import calendar as _cal
+    results = []
+    for cid, cv in config.items():
+        if cid.startswith("_"):
+            continue
+        if not cv.get("active", True):
+            continue
+        if cv.get("type", "").lower() != "hard":
+            continue
+        param_str = cv.get("param", "")
+        if not param_str or not param_str.strip().startswith("{"):
+            continue
+        try:
+            rule = _json.loads(param_str)
+        except Exception:
+            continue
+
+        cls = rule.get("class", "")
+
+        if cls == "value":
+            subj1 = rule.get("subject1", "person")
+            op    = rule.get("operator", "=")
+            subj2 = rule.get("subject2", "D").upper()
+            per   = rule.get("per", "month")
+            soft  = rule.get("soft", False)
+            if soft or subj2 != "D" or op not in ("=", "<="):
+                continue
+            try:
+                number = int(rule.get("number", 1))
+            except Exception:
+                continue
+            if subj1 == "day":
+                results.append({"kind": "day_max", "limit": number, "label": cv.get("label", cid)})
+            elif subj1 == "person" and per == "month":
+                results.append({"kind": "person_month_max", "limit": number, "label": cv.get("label", cid)})
+            elif subj1 == "person" and per == "week":
+                results.append({"kind": "person_week_max", "limit": number, "label": cv.get("label", cid)})
+
+        elif cls == "gap":
+            from_type = rule.get("from_type", "D").upper()
+            to_type   = rule.get("to_type", "D").upper()
+            soft      = rule.get("soft", False)
+            if soft or from_type != "D" or to_type != "D":
+                continue
+            try:
+                days = int(rule.get("days", 4))
+            except Exception:
+                continue
+            results.append({"kind": "gap_dd", "days": days, "label": cv.get("label", cid)})
+
+    return results
+
+
+def validate_preferences(pref_days, user_name, mmyy, constraints_list, day_duty_counts, all_person_days):
+    """
+    Validates a list of preferred duty day integers against all applicable constraints.
+
+    Args:
+        pref_days:        sorted list of int (day numbers the user wants D)
+        user_name:        str — used to exclude their own existing entries from counts
+        mmyy:             str e.g. '0525'
+        constraints_list: output of get_applicable_constraints()
+        day_duty_counts:  { day_int: int } — total D count per day across all people
+        all_person_days:  { name: [day_int] } — each person's existing D days
+
+    Returns:
+        errors: list of str — one message per violation. Empty = all good.
+    """
+    import calendar as _cal
+    errors = []
+    if not pref_days:
+        return errors
+
+    mm = int(mmyy[:2])
+    yy = 2000 + int(mmyy[2:])
+
+    # Person's existing D days (excluding themselves from the count for fair checking)
+    existing_person_days = set(all_person_days.get(user_name.upper(), []))
+    # Combined: existing + newly requested (union, since existing may already be in sheet)
+    combined_days = sorted(existing_person_days | set(pref_days))
+
+    # Adjusted counts: subtract 1 for this person's own existing D on each day
+    # so we don't double-count them when they re-submit the same day
+    def day_count_excluding_self(day):
+        base = day_duty_counts.get(day, 0)
+        return base - (1 if day in existing_person_days else 0)
+
+    for c in constraints_list:
+        kind = c["kind"]
+        label = c.get("label", kind)
+
+        if kind == "day_max":
+            limit = c["limit"]
+            for d in pref_days:
+                current = day_count_excluding_self(d)
+                if current >= limit:
+                    errors.append(
+                        f"❌ **Day {d}**: already has {current} duty assignment(s); "
+                        f"max allowed is {limit} (constraint: {label})."
+                    )
+
+        elif kind == "person_month_max":
+            limit = c["limit"]
+            # count = existing days NOT in pref_days (already there) + pref_days
+            total = len(combined_days)
+            if total > limit:
+                errors.append(
+                    f"❌ **Monthly limit exceeded**: you are requesting {total} duty day(s) "
+                    f"but the max per person per month is {limit} (constraint: {label})."
+                )
+
+        elif kind == "person_week_max":
+            limit = c["limit"]
+            # Group combined_days by ISO week
+            from collections import defaultdict
+            week_days = defaultdict(list)
+            for d in combined_days:
+                from datetime import date as _date
+                iso_week = _date(yy, mm, d).isocalendar()[1]
+                week_days[iso_week].append(d)
+            for week, days_in_week in week_days.items():
+                if len(days_in_week) > limit:
+                    errors.append(
+                        f"❌ **Week {week} limit exceeded**: days {sorted(days_in_week)} give "
+                        f"{len(days_in_week)} duties in one week; max is {limit} (constraint: {label})."
+                    )
+
+        elif kind == "gap_dd":
+            gap = c["days"]
+            # Check all pairs within combined_days (existing + new)
+            from datetime import date as _date
+            sorted_days = sorted(combined_days)
+            for i in range(len(sorted_days) - 1):
+                d1 = sorted_days[i]
+                d2 = sorted_days[i + 1]
+                diff = (_date(yy, mm, d2) - _date(yy, mm, d1)).days
+                if diff < gap:
+                    # Only flag if at least one of the two days is newly requested
+                    if d1 in pref_days or d2 in pref_days:
+                        errors.append(
+                            f"❌ **Gap violation**: day {d1} and day {d2} are only {diff} day(s) apart; "
+                            f"minimum gap required is {gap} day(s) (constraint: {label})."
+                        )
+
+    return errors
+
+
 def parse_string_to_days(day_string, month_year_str):
     if not day_string: return []
     days = []

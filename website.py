@@ -2345,6 +2345,24 @@ if role == 'User':
             if "user_defaults" in st.session_state:
                 defaults = st.session_state.user_defaults
 
+        # Load roster context and constraints for validation
+        # Cache per mmyy so it doesn't re-fetch on every interaction
+        _roster_ctx_key = f"roster_ctx_{view_mmyy}"
+        if _roster_ctx_key not in st.session_state:
+            with st.spinner("Loading roster data for validation..."):
+                _day_counts, _person_days = user_engine.get_roster_context(client, spreadsheet_name, view_mmyy)
+                _sheet_cfg_val = fetch_config(client, spreadsheet_name)
+                _constraints_list = user_engine.get_applicable_constraints(_sheet_cfg_val)
+                st.session_state[_roster_ctx_key] = {
+                    "day_counts": _day_counts,
+                    "person_days": _person_days,
+                    "constraints": _constraints_list,
+                }
+        _ctx = st.session_state[_roster_ctx_key]
+        _day_counts      = _ctx["day_counts"]
+        _person_days     = _ctx["person_days"]
+        _constraints_list = _ctx["constraints"]
+
         # date picker with calendar
 
         st.subheader("Step 2: Pick Your Dates")
@@ -2447,22 +2465,48 @@ if role == 'User':
                 if not selected_name:
                     st.error("❌ Please select your name before saving.")
                 else:
-                    with st.spinner("💾 Writing to Google Sheets..."):
-                        success, logs = user_engine.update_user_data(
-                            client, spreadsheet_name, view_mmyy,
-                            selected_name, selected_partner,
-                            driving_status, selected_traits,
-                            final_constraints, final_preferences, status_string
-                        )
-                        if success:
-                            st.success("Preferences updated successfully!")
-                            st.session_state.hist_constraints = []
-                            st.session_state.hist_preferences = []
-                            if "user_defaults" in st.session_state:
-                                del st.session_state.user_defaults
-                            st.rerun()
-                        else:
-                            st.error(f"❌ Failed to update: {logs[0]}")
+                    # Parse the final preference days the user typed/selected
+                    _pref_day_ints = []
+                    for _p in final_preferences.split(","):
+                        _p = _p.strip()
+                        if _p.isdigit():
+                            _pref_day_ints.append(int(_p))
+
+                    # Run constraint validation
+                    _val_errors = user_engine.validate_preferences(
+                        pref_days=_pref_day_ints,
+                        user_name=selected_name,
+                        mmyy=view_mmyy,
+                        constraints_list=_constraints_list,
+                        day_duty_counts=_day_counts,
+                        all_person_days=_person_days,
+                    )
+
+                    if _val_errors:
+                        st.error("❌ Your duty day preferences violate one or more constraints. Please adjust before saving:")
+                        for _err in _val_errors:
+                            st.markdown(_err)
+                    else:
+                        with st.spinner("💾 Writing to Google Sheets..."):
+                            success, logs = user_engine.update_user_data(
+                                client, spreadsheet_name, view_mmyy,
+                                selected_name, selected_partner,
+                                driving_status, selected_traits,
+                                final_constraints, final_preferences, status_string
+                            )
+                            if success:
+                                st.success("Preferences updated successfully!")
+                                st.session_state.hist_constraints = []
+                                st.session_state.hist_preferences = []
+                                # Invalidate cached roster context so next load is fresh
+                                _roster_ctx_key = f"roster_ctx_{view_mmyy}"
+                                if _roster_ctx_key in st.session_state:
+                                    del st.session_state[_roster_ctx_key]
+                                if "user_defaults" in st.session_state:
+                                    del st.session_state.user_defaults
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to update: {logs[0]}")
 
     if user_page == "🗓️ Viewer":
 
