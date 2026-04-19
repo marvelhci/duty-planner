@@ -416,7 +416,10 @@ if role == 'Admin':
         # main interface
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
-        mmyy = st.selectbox("Month/Year (MMYY) to plan", options=_opts, key="plan_mmyy")
+        _next = date(_now.year + (_now.month // 12), (_now.month % 12) + 1, 1)
+        _default_mmyy = f"{_next.month:02d}{str(_next.year)[2:]}"
+        _default_idx = _opts.index(_default_mmyy) if _default_mmyy in _opts else 0
+        mmyy = st.selectbox("Month/Year (MMYY) to plan", options=_opts, index=_default_idx, key="plan_mmyy")
         spreadsheet_name = f"MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
@@ -1106,7 +1109,10 @@ if role == 'Admin':
     if admin_page == "✏️ Editing":
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
-        mmyy = st.selectbox("Month/Year (MMYY) to edit", options=_opts, key="edit_mmyy")
+        _next = date(_now.year + (_now.month // 12), (_now.month % 12) + 1, 1)
+        _default_mmyy = f"{_next.month:02d}{str(_next.year)[2:]}"
+        _default_idx = _opts.index(_default_mmyy) if _default_mmyy in _opts else 0
+        mmyy = st.selectbox("Month/Year (MMYY) to edit", options=_opts, index=_default_idx, key="edit_mmyy")
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
@@ -2292,7 +2298,10 @@ if role == 'User':
             st.session_state.hist_preferences = set()
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
-        view_mmyy = st.selectbox("Month (MMYY)", options=_opts, key="view_mmyy")
+        _next = date(_now.year + (_now.month // 12), (_now.month % 12) + 1, 1)
+        _default_mmyy = f"{_next.month:02d}{str(_next.year)[2:]}"
+        _default_idx = _opts.index(_default_mmyy) if _default_mmyy in _opts else 0
+        view_mmyy = st.selectbox("Month (MMYY)", options=_opts, index=_default_idx, key="view_mmyy")
         spreadsheet_name = "MASTER SHEET"
 
         try:
@@ -2457,7 +2466,10 @@ if role == 'User':
     if user_page == "🗓️ Viewer":
 
         _now = date.today(); _opts = [f"{m:02d}{str(y)[2:]}" for y in [_now.year, _now.year+1] for m in range(1,13)]
-        mmyy = st.selectbox("Month/Year (MMYY) to view", options=_opts, key="view_mmyy2")
+        _next = date(_now.year + (_now.month // 12), (_now.month % 12) + 1, 1)
+        _default_mmyy = f"{_next.month:02d}{str(_next.year)[2:]}"
+        _default_idx = _opts.index(_default_mmyy) if _default_mmyy in _opts else 0
+        mmyy = st.selectbox("Month/Year (MMYY) to view", options=_opts, index=_default_idx, key="view_mmyy2")
         spreadsheet_name = "MASTER SHEET"
 
         curr_m, curr_y = int(mmyy[:2]), int(mmyy[2:])
@@ -2509,16 +2521,18 @@ if role == 'User':
                     .cal-container {
                         border: 1px solid #444;
                         border-radius: 15px;
-                        overflow: hidden; 
+                        overflow-x: auto;
+                        -webkit-overflow-scrolling: touch;
                         margin-top: 10px;
                         font-family: 'Source Sans Pro', sans-serif !important;
                     }
                     
                     .cal-table { 
                         width: 100%; 
+                        min-width: 560px;
                         border-collapse: collapse; 
                         table-layout: fixed;
-                        background-color: #262730; /* Darker background to make white text/blue pills pop */
+                        background-color: #262730;
                     }
 
                     .cal-th { 
@@ -2528,12 +2542,14 @@ if role == 'User':
                         text-align: center; 
                         border-bottom: 1px solid #444;
                         font-weight: 600 !important;
+                        min-width: 80px;
                     }
 
                     .cal-td { 
                         vertical-align: top; 
                         border: 0.5px solid rgba(255, 255, 255, 0.1); 
-                        height: 125px; 
+                        height: 125px;
+                        min-width: 80px;
                         padding: 10px; 
                     }
 
@@ -2574,7 +2590,7 @@ if role == 'User':
                         overflow: hidden;
                         text-overflow: ellipsis;
                         display: block;
-                        color: white !important; /* Plain white text, no background */
+                        color: white !important;
                         padding-left: 2px;
                     }
                         
