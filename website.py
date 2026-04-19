@@ -1245,9 +1245,10 @@ if role == 'Admin':
                     
                         .cal-table { 
                             width: 100%; 
+                            min-width: 900px;
                             border-collapse: collapse; 
-                            table-layout: fixed;
-                            background-color: #262730; /* Darker background to make white text/blue pills pop */
+                            table-layout: auto;
+                            background-color: #262730;
                         }
 
                         .cal-th { 
@@ -2529,9 +2530,9 @@ if role == 'User':
                     
                     .cal-table { 
                         width: 100%; 
-                        min-width: 560px;
+                        min-width: 900px;
                         border-collapse: collapse; 
-                        table-layout: fixed;
+                        table-layout: auto;
                         background-color: #262730;
                     }
 
