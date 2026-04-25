@@ -214,19 +214,48 @@ def apply_dynamic_constraints(
             if not x:
                 continue
 
-            for r in range(row_start, row_end+1):
-                name = row_to_name.get(r,"")
-                if name not in workers:
-                    continue
-                for c in range(date_start_col, date_end_col+1):
-                    if (r,c) in fixed_duties:
+            # ── CROSS-MONTH: block people who worked cond_dt last month ──────
+            # They cannot work action_dt at all this month (unless manually fixed).
+            if logic == "cannot":
+                for r in range(row_start, row_end+1):
+                    name = row_to_name.get(r,"")
+                    if name not in workers:
                         continue
-                    dt_obj = col_to_date[c]
-                    if _matches_day_type(dt_obj, action_dt, holiday_days):
-                        if logic == "cannot" and (r,c) in x:
-                            model.Add(x[(r,c)] == 0)
-                        elif logic == "can":
-                            pass  # no restriction
+                    for c in range(date_start_col, date_end_col+1):
+                        if (r,c) in fixed_duties:
+                            continue
+                        dt_obj = col_to_date[c]
+                        if _matches_day_type(dt_obj, action_dt, holiday_days):
+                            if (r,c) in x:
+                                model.Add(x[(r,c)] == 0)
+
+            # ── WITHIN-MONTH: every person gets at most ONE action_dt day ────
+            # Collect all action_dt columns for this month.
+            action_dt_cols = [
+                c for c in range(date_start_col, date_end_col+1)
+                if _matches_day_type(col_to_date[c], action_dt, holiday_days)
+            ]
+
+            if logic == "cannot" and action_dt_cols:
+                for r in range(row_start, row_end+1):
+                    # Count how many action_dt days are already manually fixed for this person.
+                    fixed_count = sum(
+                        1 for c in action_dt_cols if (r,c) in fixed_duties
+                    )
+                    # Free (non-fixed) action_dt variables for this person.
+                    free_vars = [
+                        x[(r,c)] for c in action_dt_cols
+                        if (r,c) not in fixed_duties and (r,c) in x
+                    ]
+                    if not free_vars:
+                        continue
+                    # If manual fixes already fill the one allowed slot, block all free ones.
+                    if fixed_count >= 1:
+                        for v in free_vars:
+                            model.Add(v == 0)
+                    else:
+                        # Allow at most (1 - fixed_count) free assignments.
+                        model.Add(sum(free_vars) <= 1 - fixed_count)
 
         # ════════════════════════════════
         # CLASS: GAP
