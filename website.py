@@ -80,7 +80,8 @@ def fetch_namelist(_client, spreadsheet_name):
 def fetch_trait_definitions(_client, spreadsheet_name):
     """
     Returns an ordered dict: { category_name: [option1, option2, ...] }
-    Stored in CONFIG as rows: col A = '_TRAIT:<CategoryName>', col B = 'opt1,opt2,opt3'
+    Sheet format: row with col A = '_TRAITS', col B = comma-separated trait names.
+    Also supports legacy col A = '_TRAIT:<CategoryName>', col B = 'opt1,opt2,...'
     """
     try:
         sh = _client.open(spreadsheet_name)
@@ -90,7 +91,13 @@ def fetch_trait_definitions(_client, spreadsheet_name):
             if not row:
                 continue
             key = row[0].strip()
-            if key.startswith("_TRAIT:"):
+            if key.upper() == "_TRAITS":
+                # New format: single row, all trait names comma-separated in col B
+                opts_raw = row[1].strip() if len(row) > 1 else ""
+                for opt in [o.strip() for o in opts_raw.split(",") if o.strip()]:
+                    traits.setdefault("Traits", []).append(opt)
+            elif key.startswith("_TRAIT:"):
+                # Legacy format
                 category = key[len("_TRAIT:"):].strip()
                 opts_raw = row[1].strip() if len(row) > 1 else ""
                 opts = [o.strip() for o in opts_raw.split(",") if o.strip()]
@@ -121,6 +128,8 @@ def fetch_spreadsheet_id(_personal_drive, folder_id, spreadsheet_name):
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_config(_client, spreadsheet_name):
     try:
+        import json as _json, re as _re
+        _CONSTRAINT_PAT = _re.compile(r"^(HC|SC)\d", _re.IGNORECASE)
         sh = _client.open(spreadsheet_name)
         ws = sh.worksheet("CONFIG")
         rows = ws.get_all_values()
@@ -130,36 +139,37 @@ def fetch_config(_client, spreadsheet_name):
         for row in rows:
             if not any(row):
                 continue
-            if row[0].strip().upper() == "KEY":
+            cell = row[0].strip()
+            # Password section: find "key" header row (case-insensitive), read everything after
+            if cell.upper() == "KEY":
                 in_passwords = True
                 continue
             if in_passwords:
-                key = row[0].strip()
-                val = row[1].strip() if len(row) > 1 else ""
-                if key:
-                    pwd[key] = val
-            else:
-                cid = row[0].strip()
-                if not cid or cid.upper() == "CONSTRAINT_ID":
-                    continue
-                import json as _json
-                _raw_param = row[5].strip() if len(row) > 5 else ""
-                try:
-                    _rule = _json.loads(_raw_param) if _raw_param.startswith("{") else {}
-                except:
-                    _rule = {}
-                cfg[cid] = {
-                    "label":        row[1].strip() if len(row) > 1 else cid,
-                    "type":         row[2].strip() if len(row) > 2 else "",
-                    "active":       row[3].strip().upper() == "TRUE" if len(row) > 3 else True,
-                    "draft_active": row[4].strip().upper() == "TRUE" if len(row) > 4 else True,
-                    "param":        _raw_param,
-                    "rule":         _rule,
-                    "param_label":  row[6].strip() if len(row) > 6 else "",
-                    "duty_type":    row[7].strip() if len(row) > 7 else "",
-                    "class":        row[8].strip() if len(row) > 8 else "",
-                    "description":  row[9].strip() if len(row) > 9 else "",
-                }
+                k = cell
+                v = row[1].strip() if len(row) > 1 else ""
+                if k:
+                    pwd[k] = v
+                continue
+            # Skip header, _TRAITS, and anything that isn't a constraint ID
+            if not cell or not _CONSTRAINT_PAT.match(cell):
+                continue
+            _raw_param = row[5].strip() if len(row) > 5 else ""
+            try:
+                _rule = _json.loads(_raw_param) if _raw_param.startswith("{") else {}
+            except:
+                _rule = {}
+            cfg[cell] = {
+                "label":        row[1].strip() if len(row) > 1 else cell,
+                "type":         row[2].strip() if len(row) > 2 else "",
+                "active":       row[3].strip().upper() == "TRUE" if len(row) > 3 else True,
+                "draft_active": row[4].strip().upper() == "TRUE" if len(row) > 4 else True,
+                "param":        _raw_param,
+                "rule":         _rule,
+                "param_label":  row[6].strip() if len(row) > 6 else "",
+                "duty_type":    row[7].strip() if len(row) > 7 else "",
+                "class":        row[8].strip() if len(row) > 8 else "",
+                "description":  row[9].strip() if len(row) > 9 else "",
+            }
         cfg["_passwords"] = pwd
         return cfg
     except Exception as e:
@@ -2307,19 +2317,21 @@ if role == 'Dev':
                                         if i.upper().startswith("SC") and i[2:].isdigit()]
                                 new_cid = f"SC{max(nums)+1 if nums else 1}"
 
-                            insert_row = len(_drows) + 1
-                            for i, row in enumerate(_drows):
-                                if row and row[0].strip().upper() == "KEY":
-                                    insert_row = i + 1
-                                    break
+                            # Insert immediately after the last HC*/SC* row (1-based gspread index)
+                            import re as _re
+                            _cid_pat = _re.compile(r"^(HC|SC)\d", _re.IGNORECASE)
+                            last_constraint_gs_row = 1
+                            for _i, _row in enumerate(_drows):
+                                if _row and _cid_pat.match(_row[0].strip()):
+                                    last_constraint_gs_row = _i + 1  # 0-based → 1-based
+                            insert_row = last_constraint_gs_row + 1
 
-                            _dws.insert_row([], insert_row)
                             new_row_data = [
                                 new_cid, nc_label, nc_type, "TRUE", "TRUE",
                                 _json.dumps(_preview_rule),
                                 nc_param_label, nc_duty_type, nc_cls, nc_desc
                             ]
-                            _dws.update(f"A{insert_row}:J{insert_row}", [new_row_data])
+                            _dws.insert_row(new_row_data, insert_row, value_input_option="RAW")
                             fetch_config.clear()
                             st.success(f"✅ Added **{new_cid}**: {nc_label}")
                             st.rerun()

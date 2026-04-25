@@ -214,48 +214,19 @@ def apply_dynamic_constraints(
             if not x:
                 continue
 
-            # ── CROSS-MONTH: block people who worked cond_dt last month ──────
-            # They cannot work action_dt at all this month (unless manually fixed).
-            if logic == "cannot":
-                for r in range(row_start, row_end+1):
-                    name = row_to_name.get(r,"")
-                    if name not in workers:
+            for r in range(row_start, row_end+1):
+                name = row_to_name.get(r,"")
+                if name not in workers:
+                    continue
+                for c in range(date_start_col, date_end_col+1):
+                    if (r,c) in fixed_duties:
                         continue
-                    for c in range(date_start_col, date_end_col+1):
-                        if (r,c) in fixed_duties:
-                            continue
-                        dt_obj = col_to_date[c]
-                        if _matches_day_type(dt_obj, action_dt, holiday_days):
-                            if (r,c) in x:
-                                model.Add(x[(r,c)] == 0)
-
-            # ── WITHIN-MONTH: every person gets at most ONE action_dt day ────
-            # Collect all action_dt columns for this month.
-            action_dt_cols = [
-                c for c in range(date_start_col, date_end_col+1)
-                if _matches_day_type(col_to_date[c], action_dt, holiday_days)
-            ]
-
-            if logic == "cannot" and action_dt_cols:
-                for r in range(row_start, row_end+1):
-                    # Count how many action_dt days are already manually fixed for this person.
-                    fixed_count = sum(
-                        1 for c in action_dt_cols if (r,c) in fixed_duties
-                    )
-                    # Free (non-fixed) action_dt variables for this person.
-                    free_vars = [
-                        x[(r,c)] for c in action_dt_cols
-                        if (r,c) not in fixed_duties and (r,c) in x
-                    ]
-                    if not free_vars:
-                        continue
-                    # If manual fixes already fill the one allowed slot, block all free ones.
-                    if fixed_count >= 1:
-                        for v in free_vars:
-                            model.Add(v == 0)
-                    else:
-                        # Allow at most (1 - fixed_count) free assignments.
-                        model.Add(sum(free_vars) <= 1 - fixed_count)
+                    dt_obj = col_to_date[c]
+                    if _matches_day_type(dt_obj, action_dt, holiday_days):
+                        if logic == "cannot" and (r,c) in x:
+                            model.Add(x[(r,c)] == 0)
+                        elif logic == "can":
+                            pass  # no restriction
 
         # ════════════════════════════════
         # CLASS: GAP
@@ -353,7 +324,7 @@ def apply_dynamic_constraints(
                         model.Add(fc == 0).OnlyEnforceIf(is_grp.Not())
 
             elif trait == "same_branch" and logic == "must_match_d" and s:
-                # S must match D branch on same day
+                # S must match D branch on same day (hard or soft)
                 from collections import Counter
                 for c in range(date_start_col, date_end_col+1):
                     if planned_df is None: continue
@@ -364,24 +335,41 @@ def apply_dynamic_constraints(
                     num_d = len(d_rows_day)
                     day_s_vars = [s[(r,c)] for r in range(row_start, row_end+1) if (r,c) in s]
                     if num_d == 0:
-                        for v in day_s_vars: model.Add(v==0)
+                        # No D on this day — no S needed regardless of soft/hard
+                        for v in day_s_vars:
+                            model.Add(v == 0)
                         continue
                     req_br = []
                     for ri in d_rows_day:
-                        nm = row_to_name.get(ri,"")
-                        br = name_to_branch.get(nm,"")
+                        nm = row_to_name.get(ri, "")
+                        br = name_to_branch.get(nm, "")
                         if br: req_br.append(br)
                     bc = Counter(req_br)
-                    if len(day_s_vars) >= num_d:
-                        model.Add(sum(day_s_vars) == num_d)
-                    for branch, rs in bc.items():
-                        bvars = [s[(r,c)] for r in branch_to_row.get(branch,[]) if (r,c) in s]
-                        if len(bvars) >= rs:
-                            model.Add(sum(bvars) == rs)
-                    for branch, rows_b in branch_to_row.items():
-                        if branch not in bc:
-                            for r in rows_b:
-                                if (r,c) in s: model.Add(s[(r,c)]==0)
+                    if is_soft:
+                        # Soft: penalise each S assignment that is from the wrong branch
+                        for r in range(row_start, row_end+1):
+                            if (r, c) not in s:
+                                continue
+                            nm = row_to_name.get(r, "")
+                            br = name_to_branch.get(nm, "")
+                            # Wrong branch if D has no person from this branch on this day
+                            if br not in bc:
+                                wrong_branch = model.NewBoolVar(f"s_wrong_br_{cid}_{r}_{c}")
+                                model.Add(s[(r,c)] == 1).OnlyEnforceIf(wrong_branch)
+                                model.Add(s[(r,c)] == 0).OnlyEnforceIf(wrong_branch.Not())
+                                soft_penalties.append(wrong_branch * penalty)
+                    else:
+                        # Hard: S count must equal D count, branch-matched
+                        if len(day_s_vars) >= num_d:
+                            model.Add(sum(day_s_vars) == num_d)
+                        for branch, rs in bc.items():
+                            bvars = [s[(r,c)] for r in branch_to_row.get(branch,[]) if (r,c) in s]
+                            if len(bvars) >= rs:
+                                model.Add(sum(bvars) == rs)
+                        for branch, rows_b in branch_to_row.items():
+                            if branch not in bc:
+                                for r in rows_b:
+                                    if (r,c) in s: model.Add(s[(r,c)]==0)
 
             elif trait == "partners" and logic == "must":
                 for r1,r2 in partner_pairs:
