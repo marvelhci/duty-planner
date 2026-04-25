@@ -815,13 +815,65 @@ if role == 'Admin':
                             # delete the row entirely
                             c_ws.delete_rows(cell.row)
 
+                            # ── remove from Holiday sheet (this month onwards) ──
+                            hol_removal_log = []
+                            try:
+                                all_titles = [s.title for s in sh.worksheets()]
+                                if "Holiday" in all_titles:
+                                    hol_ws = sh.worksheet("Holiday")
+                                    hol_all = hol_ws.get_all_values()
+
+                                    # cutoff = 1st day of the currently selected mmyy month
+                                    _mm = int(mmyy[:2])
+                                    _yy = 2000 + int(mmyy[2:])
+                                    from datetime import date as _date, datetime as _dt
+                                    cutoff = _date(_yy, _mm, 1)
+
+                                    hol_batch = []
+                                    for h_i, h_row in enumerate(hol_all[1:], start=2):  # 1-indexed, skip header
+                                        if not h_row or not h_row[0].strip():
+                                            continue
+                                        hol_date_str = h_row[1].strip() if len(h_row) > 1 else ""
+                                        n1 = h_row[3].strip() if len(h_row) > 3 else ""
+                                        n2 = h_row[4].strip() if len(h_row) > 4 else ""
+
+                                        # parse date
+                                        hol_date = None
+                                        for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
+                                            try:
+                                                hol_date = _dt.strptime(hol_date_str, fmt).date()
+                                                break
+                                            except:
+                                                continue
+                                        if not hol_date or hol_date < cutoff:
+                                            continue  # skip past holidays
+
+                                        # blank whichever column(s) contain this person
+                                        new_n1 = "" if n1.upper() == remove_name.upper() else n1
+                                        new_n2 = "" if n2.upper() == remove_name.upper() else n2
+                                        if new_n1 != n1 or new_n2 != n2:
+                                            hol_batch.append({
+                                                "range": f"D{h_i}:E{h_i}",
+                                                "values": [[new_n1, new_n2]]
+                                            })
+                                            hol_removal_log.append(hol_date_str)
+
+                                    if hol_batch:
+                                        hol_ws.batch_update(hol_batch, value_input_option="USER_ENTERED")
+                            except Exception as _he:
+                                st.warning(f"⚠️ Could not update Holiday sheet: {_he}")
+                            # ───────────────────────────────────────────────────
+
                             # clear caches
                             fetch_sheet_data.clear()
                             for key in list(st.session_state.keys()):
                                 if key.startswith("roster_") or key.startswith("adj_data_"):
                                     st.session_state.pop(key)
 
-                            st.success(f"✅ {remove_name} removed from {c_sheet}.")
+                            if hol_removal_log:
+                                st.success(f"✅ {remove_name} removed from {c_sheet} and cleared from Holiday sheet on: {', '.join(hol_removal_log)}.")
+                            else:
+                                st.success(f"✅ {remove_name} removed from {c_sheet}.")
 
                     except Exception as e:
                         st.error(f"❌ Failed to remove person: {e}")
@@ -2344,6 +2396,19 @@ if role == 'User':
             
             if "user_defaults" in st.session_state:
                 defaults = st.session_state.user_defaults
+
+            # check if this user has any auto-assigned holiday D days this month
+            _hol_days = user_engine.get_holiday_duty_days(client, spreadsheet_name, view_mmyy, selected_name)
+            if _hol_days:
+                _hol_lines = ", ".join(
+                    f"{h['date'].strftime('%-d %b')} ({h['name']})"
+                    for h in sorted(_hol_days, key=lambda x: x['date'])
+                )
+                st.info(
+                    f"🗓️ **Holiday duty notice**: You have been automatically assigned duty on: **{_hol_lines}**. "
+                    f"These days have been pre-filled as D in the schedule.",
+                    icon="ℹ️"
+                )
 
         # Load roster context and constraints for validation
         # Cache per mmyy so it doesn't re-fetch on every interaction

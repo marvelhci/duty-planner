@@ -361,6 +361,58 @@ def validate_preferences(pref_days, user_name, mmyy, constraints_list, day_duty_
     return errors
 
 
+def get_holiday_duty_days(client, spreadsheet_name, mmyy, user_name):
+    """
+    Reads the Holiday sheet and returns a list of dicts for any holiday where
+    the user (matched case-insensitively against col D or E) is assigned,
+    AND the holiday falls in the given mmyy month.
+    Each dict: { "date": date_obj, "name": holiday_name_str }
+    """
+    results = []
+    try:
+        sh = client.open(spreadsheet_name)
+        all_titles = [s.title for s in sh.worksheets()]
+        if "Holiday" not in all_titles:
+            return results
+        hol_ws = sh.worksheet("Holiday")
+        hol_raw = hol_ws.get_all_values()
+
+        mm = int(mmyy[:2])
+        yy = 2000 + int(mmyy[2:])
+
+        for row in hol_raw[1:]:  # skip header
+            if not row or not row[0].strip():
+                continue
+            hol_holiday_name = row[0].strip()
+            hol_date_str = row[1].strip() if len(row) > 1 else ""
+            name1 = row[3].strip() if len(row) > 3 else ""
+            name2 = row[4].strip() if len(row) > 4 else ""
+
+            # check if this user is assigned
+            if user_name.upper() not in (name1.upper(), name2.upper()):
+                continue
+
+            # parse date
+            hol_date = None
+            from datetime import datetime as _dt
+            for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
+                try:
+                    hol_date = _dt.strptime(hol_date_str, fmt).date()
+                    break
+                except:
+                    continue
+            if not hol_date:
+                continue
+
+            # only include if it falls in the target month
+            if hol_date.year == yy and hol_date.month == mm:
+                results.append({"date": hol_date, "name": hol_holiday_name})
+
+    except Exception:
+        pass
+    return results
+
+
 def parse_string_to_days(day_string, month_year_str):
     if not day_string: return []
     days = []

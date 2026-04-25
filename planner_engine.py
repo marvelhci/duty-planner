@@ -200,9 +200,59 @@ def generate_next_month_template(client, spreadsheet_name, mmyy, planned_df, ran
             'values': [[""]]
         })
     
-
-        
     next_ws.batch_update(updates)
+
+    # ── HOLIDAY AUTO-D ──────────────────────────────────────────────────────
+    # Read the Holiday sheet, find holidays in next month, and stamp D for
+    # each assigned person (cols D & E) in the new C sheet.
+    try:
+        all_titles = [s.title for s in sh.worksheets()]
+        if "Holiday" in all_titles:
+            hol_ws = sh.worksheet("Holiday")
+            hol_raw = hol_ws.get_all_values()
+
+            holiday_updates = []
+            for row in hol_raw[1:]:  # skip header
+                if not row or not row[0].strip():
+                    continue
+                hol_date_str = row[1].strip() if len(row) > 1 else ""
+                name1 = row[3].strip() if len(row) > 3 else ""
+                name2 = row[4].strip() if len(row) > 4 else ""
+
+                # parse date
+                hol_date = None
+                for fmt in ["%d %b %Y", "%-d %b %Y", "%Y-%m-%d"]:
+                    try:
+                        hol_date = datetime.strptime(hol_date_str, fmt)
+                        break
+                    except:
+                        continue
+                if not hol_date:
+                    continue
+
+                # only process holidays in the next month
+                if hol_date.year != next_dt.year or hol_date.month != next_dt.month:
+                    continue
+
+                day_num = hol_date.day
+                col_idx = 5 + (day_num - 1)  # col E = 5 (1-indexed gspread), day 1 = col 5
+
+                for person_name in [name1, name2]:
+                    if not person_name:
+                        continue
+                    try:
+                        cell = next_ws.find(person_name, in_column=2)
+                        a1 = gspread.utils.rowcol_to_a1(cell.row, col_idx)
+                        holiday_updates.append({"range": a1, "values": [["D"]]})
+                    except:
+                        continue  # person not found in sheet, skip
+
+            if holiday_updates:
+                next_ws.batch_update(holiday_updates, value_input_option="USER_ENTERED")
+    except Exception:
+        pass  # holiday stamping is best-effort; don't block template creation
+    # ────────────────────────────────────────────────────────────────────────
+
     return next_name, next_spreadsheet_name
 
 def run_optimisation(data_bundle, config, point_allocations, model_constraints, slider_overrides=None):
