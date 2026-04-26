@@ -645,7 +645,7 @@ if role == 'Admin':
 
             if st.session_state.get('confirm_undo'):
                 st.warning(
-                    f"⚠️ This will delete **{_d_sheet}** and **{_next_c}** from the sheet. "
+                    f"⚠️ This will delete **{_d_sheet}** and **{_next_c}**. "
                     f"This cannot be undone. Are you sure?"
                 )
                 col_yes, col_no = st.columns(2)

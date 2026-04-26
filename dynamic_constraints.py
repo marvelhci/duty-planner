@@ -214,19 +214,43 @@ def apply_dynamic_constraints(
             if not x:
                 continue
 
-            for r in range(row_start, row_end+1):
-                name = row_to_name.get(r,"")
-                if name not in workers:
-                    continue
-                for c in range(date_start_col, date_end_col+1):
-                    if (r,c) in fixed_duties:
+            if logic == "cannot":
+                # ── Cross-month: block people who worked cond_dt last month ──
+                for r in range(row_start, row_end+1):
+                    name = row_to_name.get(r,"")
+                    if name not in workers:
                         continue
-                    dt_obj = col_to_date[c]
-                    if _matches_day_type(dt_obj, action_dt, holiday_days):
-                        if logic == "cannot" and (r,c) in x:
-                            model.Add(x[(r,c)] == 0)
-                        elif logic == "can":
-                            pass  # no restriction
+                    for c in range(date_start_col, date_end_col+1):
+                        if (r,c) in fixed_duties:
+                            continue
+                        dt_obj = col_to_date[c]
+                        if _matches_day_type(dt_obj, action_dt, holiday_days):
+                            if (r,c) in x:
+                                model.Add(x[(r,c)] == 0)
+
+                # ── Within-month: every person gets at most ONE action_dt day ──
+                action_dt_cols = [
+                    c for c in range(date_start_col, date_end_col+1)
+                    if _matches_day_type(col_to_date[c], action_dt, holiday_days)
+                ]
+                if action_dt_cols:
+                    for r in range(row_start, row_end+1):
+                        # Count manually fixed action_dt days for this person
+                        fixed_count = sum(
+                            1 for c in action_dt_cols if (r,c) in fixed_duties
+                        )
+                        free_vars = [
+                            x[(r,c)] for c in action_dt_cols
+                            if (r,c) not in fixed_duties and (r,c) in x
+                        ]
+                        if not free_vars:
+                            continue
+                        if fixed_count >= 1:
+                            # Manual fix already uses the one allowed slot
+                            for v in free_vars:
+                                model.Add(v == 0)
+                        else:
+                            model.Add(sum(free_vars) <= 1)
 
         # ════════════════════════════════
         # CLASS: GAP
@@ -264,9 +288,23 @@ def apply_dynamic_constraints(
                     for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
                         for c2 in range(c1+1, date_end_col+1):
-                            if (r,c1) in fixed_duties or (r,c2) in fixed_duties: continue
                             if (col_to_date[c2]-d1).days >= days: break
-                            model.Add(x[(r,c1)] + x[(r,c2)] <= 1)
+                            # If BOTH are fixed we cannot add a constraint (constants).
+                            # If ONE is fixed as D (=1), the other free var must be 0.
+                            c1_fixed = (r,c1) in fixed_duties
+                            c2_fixed = (r,c2) in fixed_duties
+                            if c1_fixed and c2_fixed:
+                                continue  # both constants, solver handles automatically
+                            elif c1_fixed:
+                                # c1 is D=1, force c2=0
+                                if (r,c2) in x:
+                                    model.Add(x[(r,c2)] == 0)
+                            elif c2_fixed:
+                                # c2 is D=1, force c1=0
+                                if (r,c1) in x:
+                                    model.Add(x[(r,c1)] == 0)
+                            else:
+                                model.Add(x[(r,c1)] + x[(r,c2)] <= 1)
 
             elif from_type == "D" and to_type == "S" and s:
                 # D→S gap: if person has a D on day c1, they cannot be S within `days` after.
