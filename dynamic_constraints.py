@@ -214,43 +214,19 @@ def apply_dynamic_constraints(
             if not x:
                 continue
 
-            if logic == "cannot":
-                # ── Cross-month: block people who worked cond_dt last month ──
-                for r in range(row_start, row_end+1):
-                    name = row_to_name.get(r,"")
-                    if name not in workers:
+            for r in range(row_start, row_end+1):
+                name = row_to_name.get(r,"")
+                if name not in workers:
+                    continue
+                for c in range(date_start_col, date_end_col+1):
+                    if (r,c) in fixed_duties:
                         continue
-                    for c in range(date_start_col, date_end_col+1):
-                        if (r,c) in fixed_duties:
-                            continue
-                        dt_obj = col_to_date[c]
-                        if _matches_day_type(dt_obj, action_dt, holiday_days):
-                            if (r,c) in x:
-                                model.Add(x[(r,c)] == 0)
-
-                # ── Within-month: every person gets at most ONE action_dt day ──
-                action_dt_cols = [
-                    c for c in range(date_start_col, date_end_col+1)
-                    if _matches_day_type(col_to_date[c], action_dt, holiday_days)
-                ]
-                if action_dt_cols:
-                    for r in range(row_start, row_end+1):
-                        # Count manually fixed action_dt days for this person
-                        fixed_count = sum(
-                            1 for c in action_dt_cols if (r,c) in fixed_duties
-                        )
-                        free_vars = [
-                            x[(r,c)] for c in action_dt_cols
-                            if (r,c) not in fixed_duties and (r,c) in x
-                        ]
-                        if not free_vars:
-                            continue
-                        if fixed_count >= 1:
-                            # Manual fix already uses the one allowed slot
-                            for v in free_vars:
-                                model.Add(v == 0)
-                        else:
-                            model.Add(sum(free_vars) <= 1)
+                    dt_obj = col_to_date[c]
+                    if _matches_day_type(dt_obj, action_dt, holiday_days):
+                        if logic == "cannot" and (r,c) in x:
+                            model.Add(x[(r,c)] == 0)
+                        elif logic == "can":
+                            pass  # no restriction
 
         # ════════════════════════════════
         # CLASS: GAP
@@ -284,58 +260,74 @@ def apply_dynamic_constraints(
                                 model.Add(x[(r,c)] == 0)
                             else:
                                 break
-                    # internal
+                    # internal — use > days so gap=1 blocks consecutive days (diff=1)
                     for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
                         for c2 in range(c1+1, date_end_col+1):
-                            if (col_to_date[c2]-d1).days >= days: break
-                            # If BOTH are fixed we cannot add a constraint (constants).
-                            # If ONE is fixed as D (=1), the other free var must be 0.
+                            if (col_to_date[c2]-d1).days > days: break
                             c1_fixed = (r,c1) in fixed_duties
                             c2_fixed = (r,c2) in fixed_duties
                             if c1_fixed and c2_fixed:
-                                continue  # both constants, solver handles automatically
+                                continue
                             elif c1_fixed:
-                                # c1 is D=1, force c2=0
-                                if (r,c2) in x:
-                                    model.Add(x[(r,c2)] == 0)
+                                if (r,c2) in x: model.Add(x[(r,c2)] == 0)
                             elif c2_fixed:
-                                # c2 is D=1, force c1=0
-                                if (r,c1) in x:
-                                    model.Add(x[(r,c1)] == 0)
+                                if (r,c1) in x: model.Add(x[(r,c1)] == 0)
                             else:
                                 model.Add(x[(r,c1)] + x[(r,c2)] <= 1)
 
             elif from_type == "D" and to_type == "S" and s:
-                # D→S gap: if person has a D on day c1, they cannot be S within `days` after.
-                # Also enforces S→D symmetry: if person has a D on day c2, they cannot be S
-                # on day c1 within `days` before it (since D is already fixed, block the S).
+                # D→S / S→D gap: a D and an S within `days` of each other cannot coexist.
+                # D may be either fixed (in fixed_duties / planned_df) or solver-decided (x var).
                 for r in range(row_start, row_end+1):
                     for c1 in range(date_start_col, date_end_col+1):
                         d1 = col_to_date[c1]
                         for c2 in range(c1+1, date_end_col+1):
-                            if (col_to_date[c2]-d1).days >= days: break
+                            # use > days so that gap=1 blocks consecutive days (diff=1)
+                            if (col_to_date[c2]-d1).days > days: break
+                            if (r,c2) not in s: continue
+
+                            # Is c1 a D? Check fixed_duties, planned_df, AND the x variable.
+                            c1_fixed_d = (r,c1) in fixed_duties
+                            c1_planned_d = False
                             try:
-                                c1_is_d = planned_df is not None and planned_df.iat[r,c1]=="D"
-                                c2_is_d = planned_df is not None and planned_df.iat[r,c2]=="D"
-                            except: continue
+                                c1_planned_d = planned_df is not None and str(planned_df.iat[r,c1]).strip().upper() == "D"
+                            except: pass
+                            c1_var_d = (r,c1) in x and not c1_fixed_d  # solver-decided
 
-                            # D on c1 → block S on c2
-                            if c1_is_d and (r,c2) in s:
+                            if c1_fixed_d or c1_planned_d:
+                                # D is certain on c1 — hard block S on c2
                                 model.Add(s[(r,c2)] == 0)
+                            elif c1_var_d:
+                                # D on c1 is a solver decision — link: x[c1] + s[c2] <= 1
+                                model.Add(x[(r,c1)] + s[(r,c2)] <= 1)
 
-                            # D on c2 → block S on c1 (S→D direction, same gap window)
-                            if c2_is_d and (r,c1) in s:
+                        # Mirror: c1 is S, check if c2 days later is a D
+                        if (r,c1) not in s: continue
+                        for c2 in range(c1+1, date_end_col+1):
+                            if (col_to_date[c2]-d1).days > days: break
+
+                            c2_fixed_d = (r,c2) in fixed_duties
+                            c2_planned_d = False
+                            try:
+                                c2_planned_d = planned_df is not None and str(planned_df.iat[r,c2]).strip().upper() == "D"
+                            except: pass
+                            c2_var_d = (r,c2) in x and not c2_fixed_d
+
+                            if c2_fixed_d or c2_planned_d:
                                 model.Add(s[(r,c1)] == 0)
+                            elif c2_var_d:
+                                model.Add(s[(r,c1)] + x[(r,c2)] <= 1)
 
             elif from_type == "S" and to_type == "S" and s:
                 # S→S gap: person cannot have two S assignments within `days` of each other.
+                # Use > days so gap=1 blocks consecutive days (diff=1).
                 for r in range(row_start, row_end+1):
                     for c1 in range(date_start_col, date_end_col+1):
                         if (r,c1) not in s: continue
                         d1 = col_to_date[c1]
                         for c2 in range(c1+1, date_end_col+1):
-                            if (col_to_date[c2]-d1).days >= days: break
+                            if (col_to_date[c2]-d1).days > days: break
                             if (r,c2) not in s: continue
                             model.Add(s[(r,c1)] + s[(r,c2)] <= 1)
 
