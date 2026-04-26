@@ -209,9 +209,7 @@ def apply_dynamic_constraints(
             cond_dt   = rule.get("condition_day_type","weekend")
             logic     = rule.get("logic","cannot")
             action_dt = rule.get("action_day_type","weekend")
-            # "last month" = cross-month check via lm_workers
-            # "this month" = within-month check (has cond_dt fixed or assigned this month)
-            cond_when = rule.get("condition_when", "last month")
+            cond_when = rule.get("condition_when","last month")
 
             if not x:
                 continue
@@ -223,43 +221,55 @@ def apply_dynamic_constraints(
             ]
 
             if cond_when == "last month":
-                # Cross-month: block based on what they worked last month
+                # Cross-month: block people who worked cond_dt last month
                 workers = lm_workers.get(cond_dt.lower(), set())
                 if logic == "cannot":
                     for r in range(row_start, row_end+1):
-                        if row_to_name.get(r, "") not in workers:
+                        if row_to_name.get(r,"") not in workers:
                             continue
                         for c in action_dt_cols:
                             if (r,c) not in fixed_duties and (r,c) in x:
                                 model.Add(x[(r,c)] == 0)
 
             elif cond_when == "this month":
-                # Within-month: check if person has any cond_dt day this month
-                # (either fixed/stamped OR solver-assigned)
-                cond_dt_cols = [
-                    c for c in range(date_start_col, date_end_col+1)
-                    if _matches_day_type(col_to_date[c], cond_dt, holiday_days)
-                ]
                 if logic == "cannot":
-                    for r in range(row_start, row_end+1):
-                        # Check if this person has a fixed cond_dt duty this month
-                        has_fixed_cond = any((r,c) in fixed_duties for c in cond_dt_cols)
-                        free_cond_vars = [x[(r,c)] for c in cond_dt_cols
-                                          if (r,c) not in fixed_duties and (r,c) in x]
-                        free_action_vars = [x[(r,c)] for c in action_dt_cols
-                                            if (r,c) not in fixed_duties and (r,c) in x]
-
-                        if not free_action_vars:
-                            continue
-
-                        if has_fixed_cond:
-                            # Person definitely has a cond_dt day — block all action_dt
-                            for v in free_action_vars:
-                                model.Add(v == 0)
-                        elif free_cond_vars:
-                            # Person may get a cond_dt day — link: cannot have both
-                            # sum(cond) + sum(action) <= 1
-                            model.Add(sum(free_cond_vars) + sum(free_action_vars) <= 1)
+                    if cond_dt == action_dt:
+                        # Same type: person can have at most ONE of this day type per month
+                        for r in range(row_start, row_end+1):
+                            fixed_count = sum(1 for c in action_dt_cols if (r,c) in fixed_duties)
+                            free_vars   = [x[(r,c)] for c in action_dt_cols
+                                           if (r,c) not in fixed_duties and (r,c) in x]
+                            if not free_vars:
+                                continue
+                            if fixed_count >= 1:
+                                # Already has one fixed — block all free
+                                for v in free_vars:
+                                    model.Add(v == 0)
+                            else:
+                                model.Add(sum(free_vars) <= 1)
+                    else:
+                        # Different types: if person has cond_dt, block action_dt
+                        cond_dt_cols = [
+                            c for c in range(date_start_col, date_end_col+1)
+                            if _matches_day_type(col_to_date[c], cond_dt, holiday_days)
+                        ]
+                        for r in range(row_start, row_end+1):
+                            has_fixed_cond = any((r,c) in fixed_duties for c in cond_dt_cols)
+                            free_cond_vars   = [x[(r,c)] for c in cond_dt_cols
+                                                if (r,c) not in fixed_duties and (r,c) in x]
+                            free_action_vars = [x[(r,c)] for c in action_dt_cols
+                                                if (r,c) not in fixed_duties and (r,c) in x]
+                            if not free_action_vars:
+                                continue
+                            if has_fixed_cond:
+                                # Definitely has cond_dt — block all action_dt
+                                for v in free_action_vars:
+                                    model.Add(v == 0)
+                            elif free_cond_vars:
+                                # May get cond_dt — if so, cannot have action_dt
+                                for cv in free_cond_vars:
+                                    for av in free_action_vars:
+                                        model.Add(cv + av <= 1)
 
         # ════════════════════════════════
         # CLASS: GAP

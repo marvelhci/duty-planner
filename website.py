@@ -2342,6 +2342,8 @@ if role == 'Dev':
                             st.error(f"❌ Failed to add constraint: {e}")
     except Exception as e:
         st.error(f"❌ Could not load constraints: {e}")
+    
+    st.caption("Database: https://docs.google.com/spreadsheets/d/1ESayKfUojDOl8XidHOq-yuNLTATvkhDTr6UpXdYKjF4/edit?usp=sharing")
 
 # --------------------------------------------------
 # USER INTERFACE
