@@ -214,19 +214,35 @@ def apply_dynamic_constraints(
             if not x:
                 continue
 
-            for r in range(row_start, row_end+1):
-                name = row_to_name.get(r,"")
-                if name not in workers:
-                    continue
-                for c in range(date_start_col, date_end_col+1):
-                    if (r,c) in fixed_duties:
+            if logic == "cannot":
+                # ── 1. Cross-month: block anyone who worked cond_dt last month ──
+                for r in range(row_start, row_end+1):
+                    name = row_to_name.get(r,"")
+                    if name not in workers:
                         continue
-                    dt_obj = col_to_date[c]
-                    if _matches_day_type(dt_obj, action_dt, holiday_days):
-                        if logic == "cannot" and (r,c) in x:
-                            model.Add(x[(r,c)] == 0)
-                        elif logic == "can":
-                            pass  # no restriction
+                    for c in range(date_start_col, date_end_col+1):
+                        if (r,c) in fixed_duties:
+                            continue
+                        if _matches_day_type(col_to_date[c], action_dt, holiday_days):
+                            if (r,c) in x:
+                                model.Add(x[(r,c)] == 0)
+
+                # ── 2. Within-month: every person gets at most ONE action_dt day ──
+                action_dt_cols = [
+                    c for c in range(date_start_col, date_end_col+1)
+                    if _matches_day_type(col_to_date[c], action_dt, holiday_days)
+                ]
+                for r in range(row_start, row_end+1):
+                    fixed_count = sum(1 for c in action_dt_cols if (r,c) in fixed_duties)
+                    free_vars   = [x[(r,c)] for c in action_dt_cols
+                                   if (r,c) not in fixed_duties and (r,c) in x]
+                    if not free_vars:
+                        continue
+                    if fixed_count >= 1:
+                        for v in free_vars:
+                            model.Add(v == 0)
+                    else:
+                        model.Add(sum(free_vars) <= 1)
 
         # ════════════════════════════════
         # CLASS: GAP
