@@ -1965,10 +1965,11 @@ def _rule_to_sentence(rule):
         return f"{prefix} Each **{s1}** must have {op_word} **{n}** **{s2}** per **{per}**{penalty_str}"
 
     elif cls == "allow":
-        cdt = rule.get("condition_day_type","weekend")
-        lg  = rule.get("logic","cannot")
-        adt = rule.get("action_day_type","weekend")
-        return f"{prefix} If person worked a **{cdt}** last month, they **{lg}** work a **{adt}** this month"
+        cdt  = rule.get("condition_day_type","weekend")
+        lg   = rule.get("logic","cannot")
+        adt  = rule.get("action_day_type","weekend")
+        when = rule.get("condition_when","last month")
+        return f"{prefix} If person worked a **{cdt}** {when}, they **{lg}** work a **{adt}** this month"
 
     elif cls == "gap":
         ft   = rule.get("from_type","D")
@@ -2244,9 +2245,11 @@ if role == 'Dev':
                     with ac1: nc_cond_dt   = st.selectbox("Condition Day Type", _DAY_TYPES, key="nc_a_cond")
                     with ac2: nc_logic_a   = st.selectbox("Logic", _LOGICS_ALLOW, key="nc_a_logic")
                     with ac3: nc_action_dt = st.selectbox("Action Day Type", _DAY_TYPES, key="nc_a_action")
+                    aw1, aw2 = st.columns(2)
+                    with aw1: nc_cond_when = st.selectbox("Condition When", ["last month", "this month"], key="nc_a_when")
                     nc_penalty = 0
                     _preview_rule.update({"condition_day_type":nc_cond_dt,"logic":nc_logic_a,
-                                          "action_day_type":nc_action_dt,"penalty":0})
+                                          "action_day_type":nc_action_dt,"condition_when":nc_cond_when,"penalty":0})
 
                 elif nc_cls == "gap":
                     gc1, gc2, gc3 = st.columns(3)
