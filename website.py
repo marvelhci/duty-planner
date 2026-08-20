@@ -2305,20 +2305,25 @@ if role == 'Dev':
                             existing_ids = [r[0].strip() for r in _drows
                                             if r and r[0].strip()
                                             and r[0].strip().upper() not in ("CONSTRAINT_ID","KEY")]
-                            if nc_type == "hard" and nc_duty_type in ("S","DS"):
-                                nums = [int(i[2:-1]) for i in existing_ids
-                                        if i.upper().startswith("HC") and i.upper().endswith("S")
-                                        and i[2:-1].isdigit()]
-                                new_cid = f"HC{max(nums)+1 if nums else 1}S"
+                            if nc_type == "hard" and nc_duty_type in ("S", "DS"):
+                                nums = [int(i[2:-1]) for i in existing_ids 
+                                        if i.upper().startswith("HC") and i.upper().endswith("S") and i[2:-1].isdigit()]
+                                new_cid = f"HC{max(nums) + 1 if nums else 1}S"
+
                             elif nc_type == "hard":
-                                nums = [int(i[2:]) for i in existing_ids
-                                        if i.upper().startswith("HC") and not i.upper().endswith("S")
-                                        and i[2:].isdigit()]
-                                new_cid = f"HC{max(nums)+1 if nums else 1}"
+                                nums = [int(i[2:]) for i in existing_ids 
+                                        if i.upper().startswith("HC") and not i.upper().endswith("S") and i[2:].isdigit()]
+                                new_cid = f"HC{max(nums) + 1 if nums else 1}"
+
+                            elif nc_duty_type in ("S", "DS"):
+                                nums = [int(i[2:-1]) for i in existing_ids 
+                                        if i.upper().startswith("SC") and i.upper().endswith("S") and i[2:-1].isdigit()]
+                                new_cid = f"SC{max(nums) + 1 if nums else 1}S"
+
                             else:
-                                nums = [int(i[2:]) for i in existing_ids
-                                        if i.upper().startswith("SC") and i[2:].isdigit()]
-                                new_cid = f"SC{max(nums)+1 if nums else 1}"
+                                nums = [int(i[2:]) for i in existing_ids 
+                                        if i.upper().startswith("SC") and not i.upper().endswith("S") and i[2:].isdigit()]
+                                new_cid = f"SC{max(nums) + 1 if nums else 1}"
 
                             # Insert immediately after the last HC*/SC* row (1-based gspread index)
                             import re as _re
@@ -2353,9 +2358,8 @@ if role == 'User':
     st.title("🚀 Duty Planner")
 
     user_page = st.sidebar.segmented_control(
-        "xxx",
+        "",
         options=["✏️ Planning", "🗓️ Viewer"],
-        label_visibility="collapsed"
     )
 
     client = get_gspread_auth()
