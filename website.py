@@ -2353,8 +2353,9 @@ if role == 'User':
     st.title("🚀 Duty Planner")
 
     user_page = st.sidebar.segmented_control(
-        "",
+        "xxx",
         options=["✏️ Planning", "🗓️ Viewer"],
+        label_visibility="collapsed"
     )
 
     client = get_gspread_auth()
